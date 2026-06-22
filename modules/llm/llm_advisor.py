@@ -37,7 +37,25 @@ class LLMAdvisor:
         # allow role to be passed inside player_report or default to coach
         role = player_report.get("role", "coach") if isinstance(player_report, dict) else "coach"
         meta = player_report.get("meta") if isinstance(player_report, dict) else None
-        prompt = self.engineer.build_prompt(player_report, role=role, meta=meta)
+        # If embedding store is available, perform retrieval to get compact passages
+        passages = None
+        try:
+            from modules.embeddings.embedder import Embedder
+            from modules.embeddings.store import VectorStore
+
+            embedder = Embedder()
+            store = VectorStore()
+            # build a compact query from report summary
+            q_text = (player_report.get("summary") or player_report.get("notes") or "").strip()
+            if not q_text:
+                q_text = "player report summary"
+            q_emb = embedder.embed_texts([q_text])[0]
+            hits = store.query(q_emb, top_k=5)
+            passages = [h.get("document") or h.get("metadata", {}).get("summary") or str(h.get("metadata")) for h in hits]
+        except Exception:
+            passages = None
+
+        prompt = self.engineer.build_prompt(player_report, role=role, meta=meta, passages=passages)
 
         # Log and persist the prompt we send to the model to help iterative prompt tuning.
         try:

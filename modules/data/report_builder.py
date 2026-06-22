@@ -147,3 +147,45 @@ class ReportBuilder:
         except Exception:
             # Disk failures should not raise during report creation
             pass
+
+
+def index_report_passages(report: Dict[str, Any]) -> None:
+    """Create compact textual passages from a player report and upsert into vector store.
+
+    This is best-effort: if embedding libraries or the vector store are not
+    available, the function will silently return without raising so the
+    main pipeline is not blocked.
+    """
+    try:
+        recent = report.get("recent_games") or []
+        if not recent:
+            # Nothing to index
+            return
+
+        passages = []
+        metadatas = []
+        ids = []
+        for g in recent[:50]:
+            mid = g.get("matchId") or g.get("id") or "unknown"
+            text = f"match:{mid} champ:{g.get('champion')} result:{g.get('result')} kda:{g.get('kda')} highlights:{(g.get('highlights') or '')[:140]}"
+            passages.append(text)
+            metadatas.append({"player": report.get("player"), "matchId": mid, "champion": g.get('champion')})
+            ids.append(f"{report.get('player')}_{mid}")
+
+        if not passages:
+            return
+
+        # import embedder and store lazily so missing deps don't break the pipeline
+        try:
+            from modules.embeddings.embedder import Embedder
+            from modules.embeddings.store import VectorStore
+        except Exception:
+            return
+
+        embedder = Embedder()
+        embeddings = embedder.embed_texts(passages)
+        store = VectorStore()
+        store.upsert_docs(ids=ids, texts=passages, embeddings=embeddings, metadatas=metadatas)
+    except Exception:
+        # Do not let indexing failures break the pipeline
+        return
