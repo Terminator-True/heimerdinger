@@ -5,23 +5,35 @@ installed the import will fail when attempting to use the store; code that
 depends on it should guard accordingly.
 """
 from typing import List, Dict, Any, Optional
+from modules.logger import get_logger
 
 
 class VectorStore:
     def __init__(self, persist_directory: str = "chromadb_store"):
+        logger = get_logger()
         try:
             import chromadb
             from chromadb.config import Settings
         except Exception as e:
             raise ImportError("chromadb is required for the vector store") from e
 
-        # Use duckdb+parquet for persistence by default; users can change persist_directory
-        # via constructor. Chroma may require optional extras; surface a helpful
-        # ImportError message earlier when it fails.
+        # Try to create a persistent client using duckdb+parquet. Newer/older
+        # chromadb versions changed configuration and may raise a ValueError
+        # complaining about deprecated configuration. In that case fall back to
+        # a default in-memory Client (non-persistent) and log a clear warning so
+        # the operator can install compatible optional dependencies.
         try:
             self.client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=persist_directory))
+        except ValueError as e:
+            # deprecated configuration detected; fallback to non-persistent client
+            logger.warning("Chroma configuration deprecated or incompatible: %s. Falling back to non-persistent Chroma client. To enable persistence, install chromadb optional deps (duckdb+parquet) or use a compatible chromadb version.", e)
+            try:
+                self.client = chromadb.Client()
+            except Exception as e2:
+                raise RuntimeError("Failed to initialize chromadb Client (fallback attempt failed): " + str(e2)) from e2
         except Exception as e:
             raise RuntimeError("Failed to initialize chromadb Client. Ensure optional deps (duckdb, parquet) are installed: " + str(e)) from e
+
         self.collection = None
 
     def ensure_collection(self, name: str = "heimerdinger"):
@@ -29,7 +41,11 @@ class VectorStore:
             return self.collection
         # create or get existing
         try:
-            self.collection = self.client.get_collection(name)
+            # chroma API changed between versions; try both get_collection and get_or_create
+            try:
+                self.collection = self.client.get_collection(name)
+            except Exception:
+                self.collection = self.client.get_or_create_collection(name)
         except Exception:
             self.collection = self.client.create_collection(name)
         return self.collection
