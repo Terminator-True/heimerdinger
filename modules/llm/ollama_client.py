@@ -40,7 +40,7 @@ class OllamaClient:
         if not isinstance(prompt, str) or not prompt:
             raise ValueError("prompt must be a non-empty string")
 
-        payload = {"prompt": prompt}
+        payload = {"prompt": prompt, "stream": False}
         if model:
             payload["model"] = model
 
