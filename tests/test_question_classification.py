@@ -14,7 +14,7 @@ def test_rule_based_laning():
     assert res["confidence"] > 0
 
 
-def test_embedding_fallback(monkeypatch):
+def test_embedding_fallback():
     # Simulate sentence_transformers with predictable similarity
     class FakeModel:
         def encode(self, items):
@@ -30,7 +30,9 @@ def test_embedding_fallback(monkeypatch):
 
     fake = FakeModel()
 
-    monkeypatch.setitem(sys.modules, 'sentence_transformers', types.SimpleNamespace(SentenceTransformer=lambda name: fake))
+    # inject fake sentence_transformers
+    import sys as _sys
+    _sys.modules['sentence_transformers'] = types.SimpleNamespace(SentenceTransformer=lambda name: fake)
 
     res = classify_question("this question will use embeddings")
     # Our fake makes the best sim likely below threshold; ensure we get a dict
