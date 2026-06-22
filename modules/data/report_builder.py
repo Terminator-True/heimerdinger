@@ -34,10 +34,76 @@ class ReportBuilder:
                 yield d
         except Exception:
             # If the collection is a simple list/dict, attempt a fallback
-            if hasattr(col, "values"):
-                for d in col.values():
-                    if d.get("player_puuid") == player_puuid:
-                        yield d
+        if hasattr(col, "values"):
+            for d in col.values():
+                if d.get("player_puuid") == player_puuid:
+                    yield d
+
+
+def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] = None) -> Dict[str, Any]:
+    """Try to find the participant object for this player inside various possible
+    placements (doc.parsed_metrics, doc.metrics, doc.match.participants, doc.raw_match).
+    Returns a dict with the raw participant fields (may be empty if not found).
+    """
+    # First, if parsed/metrics already contains any of our target keys, return them
+    parsed = doc.get("parsed_metrics") or doc.get("metrics") or {}
+    # target keys we care about
+    target_keys = [
+        "goldEarned", "goldSpent", "damageDealtToBuildings", "damageDealtToEpicMonsters",
+        "damageDealtToTurrets", "detectorWardsPlaced", "totalDamageDealtToChampions",
+        "totalDamageTaken", "totalHealsOnTeammates", "totalEnemyJungleMinionsKilled",
+        "wardsKilled", "wardsPlaced",
+    ]
+
+    # If parsed contains any of the target keys (possibly under different casings), return matching subset
+    found = {}
+    for k in target_keys:
+        if k in parsed:
+            found[k] = parsed.get(k)
+    if found:
+        return found
+
+    # Try to locate participants array in different possible fields
+    participants = None
+    # common places
+    if isinstance(doc.get("match"), dict):
+        participants = doc["match"].get("participants")
+    if participants is None and isinstance(doc.get("raw_match"), dict):
+        participants = doc["raw_match"].get("participants")
+    if participants is None and isinstance(doc.get("participants"), list):
+        participants = doc.get("participants")
+
+    if isinstance(participants, list):
+        # try to match by puuid supplied in doc or passed in
+        puuid_keys = ["puuid", "participantPuuid", "summonerPuuid"]
+        target_puuid = player_puuid or doc.get("player_puuid") or doc.get("player")
+        for p in participants:
+            if not isinstance(p, dict):
+                continue
+            matched = False
+            if target_puuid:
+                for pk in puuid_keys:
+                    if p.get(pk) == target_puuid:
+                        matched = True
+                        break
+            # fallback: some participant objects include an 'isMe' or similar flag
+            if not matched and (p.get("isPlayer") or p.get("isMe") or p.get("you")):
+                matched = True
+
+            if matched:
+                for k in target_keys:
+                    # some providers use camelCase or snake_case; try variants
+                    if k in p:
+                        found[k] = p.get(k)
+                    else:
+                        # try snake_case mapping
+                        snake = ''.join(['_' + c.lower() if c.isupper() else c for c in k]).lstrip('_')
+                        if snake in p:
+                            found[k] = p.get(snake)
+                return found
+
+    # nothing found
+    return {}
 
     def build_player_report(self, player_puuid: str, db, pro_reference: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         docs = list(self._iter_player_matches(player_puuid, db))
@@ -58,6 +124,15 @@ class ReportBuilder:
         kda_vals = []
         champions = []
         roles = []
+
+        # collect participant-level stats across matches
+        participant_keys = [
+            "goldEarned", "goldSpent", "damageDealtToBuildings", "damageDealtToEpicMonsters",
+            "damageDealtToTurrets", "detectorWardsPlaced", "totalDamageDealtToChampions",
+            "totalDamageTaken", "totalHealsOnTeammates", "totalEnemyJungleMinionsKilled",
+            "wardsKilled", "wardsPlaced",
+        ]
+        part_lists = {k: [] for k in participant_keys}
 
         for d in docs:
             parsed = d.get("parsed_metrics") or d.get("metrics") or {}
@@ -87,11 +162,33 @@ class ReportBuilder:
             if role:
                 roles.append(role)
 
+            # extract participant stats (best-effort)
+            try:
+                pstats = _extract_participant_stats(d, player_puuid)
+                for k, v in pstats.items():
+                    try:
+                        if v is None:
+                            continue
+                        part_lists[k].append(float(v))
+                    except Exception:
+                        # keep non-numeric as-is? skip for now
+                        pass
+            except Exception:
+                pass
+
         metrics = {}
         if cs_vals:
             metrics["cs_per_min"] = mean(cs_vals)
         if kda_vals:
             metrics["kda"] = mean(kda_vals)
+
+        # aggregate participant-level stats (means)
+        for k, vals in part_lists.items():
+            if vals:
+                try:
+                    metrics[k] = round(mean(vals), 3)
+                except Exception:
+                    pass
 
         champion = Counter(champions).most_common(1)[0][0] if champions else None
         role = Counter(roles).most_common(1)[0][0] if roles else None
