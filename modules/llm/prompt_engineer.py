@@ -48,7 +48,7 @@ class PromptEngineer:
         "Provide concrete advice, next steps, and a 1-2 sentence summary."
     )
 
-    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None) -> str:
+    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None, language: str = "es") -> str:
         """Compose a richer prompt for the LLM.
 
         The prompt includes:
@@ -100,4 +100,13 @@ Place only the JSON between the backticks. Example:
         # include a compact summary line
         compact = f"\nCOMPACT SUMMARY: Player={name} Games={player_report.get('games_analyzed', 'N/A')}\n"
 
-        return f"SYSTEM: {system}\n\nUSER: {user}{passage_section}{compact}{json_instruction}"
+        # enforce language at the top of the user prompt to guide the model
+        lang_instruction = ""
+        if language:
+            # normalize Spanish aliases
+            if language.lower() in ("es", "español", "castellano", "spanish"):
+                lang_instruction = "Por favor, responde exclusivamente en castellano. No escribas en otro idioma.\n\n"
+            else:
+                lang_instruction = f"Please respond in {language}.\n\n"
+
+        return f"SYSTEM: {system}\n\nUSER: {user}{passage_section}{compact}{lang_instruction}{json_instruction}"

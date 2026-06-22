@@ -71,7 +71,7 @@ def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b"):
         except Exception:
             pass
 
-    prompt = pe.build_prompt({"puuid": "ask_coach", "games_analyzed": "N/A"}, role=role or "coach", passages=passages)
+    prompt = pe.build_prompt({"puuid": "ask_coach", "games_analyzed": "N/A"}, role=role or "coach", passages=passages, language="es")
 
     client = OllamaClient()
     resp = client.generate(prompt=prompt, model=model)
