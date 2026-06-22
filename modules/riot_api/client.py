@@ -9,7 +9,7 @@ load_dotenv()
 
 
 class RiotClient:
-    def __init__(self, region: str = "EUW", api_key: Optional[str] = None):
+    def __init__(self, region: str = "europe", api_key: Optional[str] = None):
         """
         Riot API client.
 
@@ -29,7 +29,7 @@ class RiotClient:
         url = f"{self.base}/lol/summoner/v4/summoners/by-name/{name}"
         # Ensure we pass an httpx.URL or str to httpx to avoid transport-level
         # internals returning tuple/bytes to respx in some environments.
-        r = self.client.get(httpx.URL(url))
+        r = self.client.get(url)
         r.raise_for_status()
         return r.json()
 
@@ -44,19 +44,19 @@ class RiotClient:
         q_name = urllib.parse.quote(game_name, safe="")
         q_tag = urllib.parse.quote(clean_tag, safe="")
         url = f"{self.base}/riot/account/v1/accounts/by-riot-id/{q_name}/{q_tag}"
-        r = self.client.get(httpx.URL(url))
+        r = self.client.get(url)
         r.raise_for_status()
         return r.json()
 
     def get_match_ids_by_puuid(self, puuid: str, count: int = 20, start: int = 0, region_rep: str = "europe") -> List[str]:
         # match-v5 uses regional routing (e.g., europe, americas)
         url = f"https://{region_rep}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start={start}&count={count}"
-        r = self.client.get(httpx.URL(url))
+        r = self.client.get(url)
         r.raise_for_status()
         return r.json()
 
     def get_match_by_id(self, match_id: str, region_rep: str = "europe") -> dict:
         url = f"https://{region_rep}.api.riotgames.com/lol/match/v5/matches/{match_id}"
-        r = self.client.get(httpx.URL(url))
+        r = self.client.get(url)
         r.raise_for_status()
         return r.json()

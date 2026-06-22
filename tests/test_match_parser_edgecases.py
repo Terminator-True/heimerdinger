@@ -57,7 +57,7 @@ def test_zero_game_duration_cs_per_min_zero():
     assert p["cs_per_min"] == 0.0
 
 
-def test_participant_not_found_does_not_crash_and_no_upsert(mocker):
+def test_participant_not_found_does_not_crash_and_no_upsert():
     # Simulate ingest flow where target puuid is absent. We call parser directly
     match = {
         "metadata": {"matchId": "m3"},

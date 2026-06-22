@@ -1,0 +1,27 @@
+[
+  {
+    "riotid": "TR Terminator#1998",
+    "role": "Support",
+    "champions": ["Nami", "Vel'Koz", "Leona", "Thresh"]
+  },
+  {
+    "riotid": "TR Adria Kila#DKS",
+    "role": "Mid",
+    "champions": ["Sylas", "Aatrox", "Lux", "Ekko"]
+  },
+  {
+    "riotid": "TR Arkinos#777",
+    "role": "Jungle",
+    "champions": ["Shyvana", "Lee Sin", "Kayn"]
+  },
+  {
+    "riotid": "TR alex132mini#ASF",
+    "role": "Top",
+    "champions": ["Dr. Mundo", "Garen", "Mordekaiser", "Yone"]
+  },
+  {
+    "riotid": "TR Markos316#GGWP",
+    "role": "ADC",
+    "champions": ["Swain", "Twitch", "Kai'Sa", "Jhin"]
+  }
+]
