@@ -15,7 +15,13 @@ class VectorStore:
         except Exception as e:
             raise ImportError("chromadb is required for the vector store") from e
 
-        self.client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=persist_directory))
+        # Use duckdb+parquet for persistence by default; users can change persist_directory
+        # via constructor. Chroma may require optional extras; surface a helpful
+        # ImportError message earlier when it fails.
+        try:
+            self.client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=persist_directory))
+        except Exception as e:
+            raise RuntimeError("Failed to initialize chromadb Client. Ensure optional deps (duckdb, parquet) are installed: " + str(e)) from e
         self.collection = None
 
     def ensure_collection(self, name: str = "heimerdinger"):

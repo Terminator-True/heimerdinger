@@ -22,6 +22,25 @@ class LLMAdvisor:
     def __init__(self, client: OllamaClient = None, engineer: PromptEngineer = None):
         self.client = client or OllamaClient()
         self.engineer = engineer or PromptEngineer()
+        # Lazy/cached embedder and vector store instances to avoid re-loading
+        # the model and DB on every advise() call which is expensive.
+        try:
+            from modules.embeddings.embedder import Embedder
+            from modules.embeddings.store import VectorStore
+
+            try:
+                self.embedder = Embedder()
+            except Exception:
+                self.embedder = None
+
+            try:
+                self.store = VectorStore()
+            except Exception:
+                self.store = None
+        except Exception:
+            # Embedding stack not available; continue without retrieval.
+            self.embedder = None
+            self.store = None
 
     def advise(self, player_report: Dict[str, Any], model: str = "llama3.1:8b") -> Dict[str, Any]:
         """Generate advice for a player report.
@@ -40,18 +59,13 @@ class LLMAdvisor:
         # If embedding store is available, perform retrieval to get compact passages
         passages = None
         try:
-            from modules.embeddings.embedder import Embedder
-            from modules.embeddings.store import VectorStore
-
-            embedder = Embedder()
-            store = VectorStore()
-            # build a compact query from report summary
-            q_text = (player_report.get("summary") or player_report.get("notes") or "").strip()
-            if not q_text:
-                q_text = "player report summary"
-            q_emb = embedder.embed_texts([q_text])[0]
-            hits = store.query(q_emb, top_k=5)
-            passages = [h.get("document") or h.get("metadata", {}).get("summary") or str(h.get("metadata")) for h in hits]
+            if self.embedder and self.store:
+                q_text = (player_report.get("summary") or player_report.get("notes") or "").strip()
+                if not q_text:
+                    q_text = "player report summary"
+                q_emb = self.embedder.embed_texts([q_text])[0]
+                hits = self.store.query(q_emb, top_k=5)
+                passages = [h.get("document") or h.get("metadata", {}).get("summary") or str(h.get("metadata")) for h in hits]
         except Exception:
             passages = None
 

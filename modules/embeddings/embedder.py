@@ -27,6 +27,6 @@ class Embedder:
         """
         if not texts:
             return []
-        vectors = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=False)
+        vectors = self.model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
         # ensure JSON-serializable nested lists
-        return [list(map(float, v)) for v in vectors]
+        return [list(map(float, v.tolist() if hasattr(v, 'tolist') else v)) for v in vectors]

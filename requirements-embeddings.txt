@@ -1,0 +1,6 @@
+# Optional heavy dependencies for local embeddings and vector store
+sentence-transformers>=2.2.2
+chromadb>=0.4.0
+
+# Note: sentence-transformers may pull torch or tensorflow. On Windows,
+# prefer installing torch from official wheels matching your CUDA/CPU setup.

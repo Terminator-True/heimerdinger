@@ -118,6 +118,15 @@ class ReportBuilder:
 
         # Persist report to DB and disk idempotently
         self.save_report(report, db)
+        # Index compact passages into the vector store (best-effort)
+        try:
+            from modules.data.report_builder import index_report_passages as _index_fn
+
+            # call the local helper defined below
+            index_report_passages(report)
+        except Exception:
+            # if indexing fails or dependencies missing, ignore
+            pass
 
         return report
 
