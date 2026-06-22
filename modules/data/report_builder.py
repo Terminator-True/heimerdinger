@@ -1,6 +1,6 @@
 import json
 from collections import Counter
-from statistics import mean
+from statistics import mean, median
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -182,11 +182,33 @@ def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] 
         if kda_vals:
             metrics["kda"] = mean(kda_vals)
 
-        # aggregate participant-level stats (means)
+        # aggregate participant-level stats (means, median, and 25/75 percentiles)
+        def _percentile(data: list, pct: float) -> float:
+            # simple linear interpolation percentile (0..100)
+            if not data:
+                return None
+            d = sorted(data)
+            n = len(d)
+            if n == 1:
+                return d[0]
+            rank = (pct / 100.0) * (n - 1)
+            lo = int(rank)
+            hi = min(lo + 1, n - 1)
+            weight = rank - lo
+            return d[lo] * (1 - weight) + d[hi] * weight
+
         for k, vals in part_lists.items():
             if vals:
                 try:
-                    metrics[k] = round(mean(vals), 3)
+                    m = mean(vals)
+                    med = median(vals)
+                    p25 = _percentile(vals, 25)
+                    p75 = _percentile(vals, 75)
+                    metrics[k] = round(m, 3)
+                    # add additional statistics under explicit keys
+                    metrics[f"{k}_median"] = round(med, 3) if med is not None else None
+                    metrics[f"{k}_p25"] = round(p25, 3) if p25 is not None else None
+                    metrics[f"{k}_p75"] = round(p75, 3) if p75 is not None else None
                 except Exception:
                     pass
 
