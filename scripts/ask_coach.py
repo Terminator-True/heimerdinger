@@ -86,7 +86,15 @@ def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b", last_
 
     # prefer a short plain text answer for single-match queries
     output_fmt = "text" if last_match else "text"
-    prompt = pe.build_prompt({"puuid": "ask_coach", "games_analyzed": "N/A"}, role=role or "coach", passages=passages, language="es", output_format=output_fmt)
+    # Add a compact game-level summary and important points if last_match
+    game_summary = None
+    important_points = None
+    if last_match and passages:
+        # use the first passage as a short game summary candidate
+        game_summary = passages[0][:200]
+        important_points = [p for p in passages[1:4]] if len(passages) > 1 else None
+
+    prompt = pe.build_prompt({"puuid": "ask_coach", "games_analyzed": "N/A"}, role=role or "coach", passages=passages, language="es", output_format=output_fmt, game_summary=game_summary, important_points=important_points)
 
     logger.info("Calling Ollama model=%s; prompt length=%d chars; passages=%d", model, len(prompt), len(passages))
     client = OllamaClient()

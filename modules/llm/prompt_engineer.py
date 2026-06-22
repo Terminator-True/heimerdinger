@@ -48,7 +48,7 @@ class PromptEngineer:
         "Provide concrete advice, next steps, and a 1-2 sentence summary."
     )
 
-    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None, language: str = "es", output_format: str = "json") -> str:
+    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None, language: str = "es", output_format: str = "json", game_summary: Optional[str] = None, important_points: Optional[List[str]] = None) -> str:
         """Compose a richer prompt for the LLM.
 
         The prompt includes:
@@ -105,6 +105,18 @@ IMPORTANT: Provide a single brief paragraph (2-4 short sentences) in plain Spani
         # include a compact summary line
         compact = f"\nCOMPACT SUMMARY: Player={name} Games={player_report.get('games_analyzed', 'N/A')}\n"
 
+        # optional short game-level description and important points to provide
+        game_section = ""
+        if game_summary:
+            game_section += "\nGAME SUMMARY: " + game_summary.strip() + "\n"
+        if important_points:
+            # include up to 6 bullet points to keep prompt small
+            pts = important_points[:6]
+            game_section += "IMPORTANT POINTS:\n"
+            for p in pts:
+                game_section += f"- {p.strip()}\n"
+            game_section += "\n"
+
         # enforce language at the top of the user prompt to guide the model
         lang_instruction = ""
         if language:
@@ -120,4 +132,4 @@ IMPORTANT: Provide a single brief paragraph (2-4 short sentences) in plain Spani
         else:
             chosen_instruction = json_instruction
 
-        return f"SYSTEM: {system}\n\nUSER: {user}{passage_section}{compact}{lang_instruction}{chosen_instruction}"
+        return f"SYSTEM: {system}\n\nUSER: {user}{game_section}{passage_section}{compact}{lang_instruction}{chosen_instruction}"
