@@ -34,9 +34,11 @@ logger = get_logger()
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--team", default="config/team.json")
-    parser.add_argument("--games", type=int, default=2)
+    parser.add_argument("--games", type=int, default=1)
     parser.add_argument("--region", default="europe")
     parser.add_argument("--model", default="llama3.1:8b")
+    parser.add_argument("--per-match", action="store_true", help="Generate per-match reports instead of aggregated per-player reports")
+    parser.add_argument("--max-llm-per-player", type=int, default=0, help="If >0, call LLM up to N times per player (0=disabled)")
     parser.add_argument("--skip-fetch", action="store_true")
     args = parser.parse_args()
 
@@ -44,7 +46,6 @@ def main():
     team = get_team(args.team)
     db = get_db()
     rb = ReportBuilder()
-    advisor = LLMAdvisor()
 
     for p in team:
         riotid = p.get("riotid")
@@ -58,16 +59,23 @@ def main():
             logger.warning("No puuid resolved for %s", riotid)
             continue
 
-        report = rb.build_player_report(puuid, db)
-        console.print(f"Report for {riotid}: {report['games_analyzed']} games analyzed; champion: {report['champion']}")
-        logger.info("Report built for %s: %s games", riotid, report['games_analyzed'])
+        if args.per_match:
+            # build per-match reports
+            # fetch player_matches for this player
+            try:
+                col = db.get_collection("player_matches")
+                matches = list(col.find({"player_puuid": puuid}))
+            except Exception:
+                matches = [m for m in db.get("player_matches", {}).values() if m.get("player_puuid") == puuid]
 
-        # Ask LLM for advice (best-effort)
-        try:
-            advice = advisor.advise(report, model=args.model)
-            console.print("LLM advice summary:\n", advice.get("raw_advice_text", "(no advice)"))
-        except Exception as e:
-            console.print(f"[red]LLM advice failed: {e}[/red]")
+            console.print(f"Building {len(matches)} per-match reports for {riotid}...")
+            for mi, match in enumerate(matches, 1):
+                mreport = rb.build_match_report(match, db)
+                console.print(f"[{mi}/{len(matches)}] Report saved: {mreport.get('player')} match={match.get('matchId')}")
+        else:
+            report = rb.build_player_report(puuid, db)
+            console.print(f"Report for {riotid}: {report['games_analyzed']} games analyzed; champion: {report['champion']}")
+            logger.info("Report built for %s: %s games", riotid, report['games_analyzed'])
 
 
 if __name__ == "__main__":

@@ -157,6 +157,53 @@ class ReportBuilder:
             # Disk failures should not raise during report creation
             pass
 
+    def build_match_report(self, match_doc: Dict[str, Any], db) -> Dict[str, Any]:
+        """Generate and persist a compact report for a single match document.
+
+        The match_doc is expected to be a player_matches document containing
+        parsed_metrics and match-level metadata.
+        """
+        try:
+            parsed = match_doc.get('parsed_metrics') or match_doc.get('metrics') or {}
+            player = match_doc.get('player_puuid') or parsed.get('player')
+            match_id = match_doc.get('matchId') or match_doc.get('id') or parsed.get('matchId')
+            report = {
+                'player': player,
+                'matchId': match_id,
+                'champion': match_doc.get('champion') or parsed.get('champion'),
+                'games_analyzed': 1,
+                'metrics': parsed,
+                'role': match_doc.get('role') or parsed.get('role'),
+            }
+
+            # save per-match report keyed by player_match
+            try:
+                col = db.get_collection('reports')
+                col.update_one({'player': report.get('player'), 'matchId': report.get('matchId')}, {'$set': report}, upsert=True)
+            except Exception:
+                rcol = db.setdefault('reports', {})
+                rcol[f"{report.get('player')}_{report.get('matchId')}"] = report
+
+            # persist to disk
+            out_dir = self.output_dir
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / f"{report.get('player')}_{report.get('matchId')}.json"
+            try:
+                with out_path.open('w', encoding='utf-8') as fh:
+                    json.dump(report, fh, ensure_ascii=False, indent=2)
+            except Exception:
+                pass
+
+            # index this match report as passages
+            try:
+                index_report_passages(report)
+            except Exception:
+                pass
+
+            return report
+        except Exception:
+            return {}
+
 
 def index_report_passages(report: Dict[str, Any]) -> None:
     """Create compact textual passages from a player report and upsert into vector store.
