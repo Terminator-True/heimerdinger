@@ -15,6 +15,8 @@ from rich.console import Console
 from modules.db.connection import get_db
 from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
+from modules.llm.question_classifier import classify_question
+from modules.llm.retrieval import retrieve_for_category
 
 
 def find_context_by_role(db, role: str, limit: int = 3):
@@ -41,15 +43,15 @@ def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b"):
     db = get_db()
     pe = PromptEngineer()
 
-    # Try fast scan first
+    # Classify the question and retrieve best-effort passages
     passages = []
+    cat = classify_question(question)
     if role:
-        hits = find_context_by_role(db, role, limit=5)
-        for h in hits:
-            summary = h.get("metrics") or {}
-            passages.append(f"player={h.get('player')} games={h.get('games_analyzed')} metrics={summary}")
+        # retrieval recipes prefer DB-level heuristics
+        passages = retrieve_for_category(cat.get("category_id"), role, db, limit=5)
 
-    # If insufficient, try embedding retrieval
+    # If no passages returned, fallback to vector store retrieval (embeddings)
+    
     if not passages:
         try:
             from modules.embeddings.embedder import Embedder

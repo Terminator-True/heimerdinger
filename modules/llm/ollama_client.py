@@ -25,7 +25,7 @@ class OllamaClient:
         timeout: Request timeout in seconds.
     """
 
-    def __init__(self, base_url: str = "http://localhost:11434", timeout: float = 2400.0):
+    def __init__(self, base_url: str = "http://localhost:11434", timeout: float = 30.0):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self._client = httpx.Client(base_url=self.base_url, timeout=self.timeout)

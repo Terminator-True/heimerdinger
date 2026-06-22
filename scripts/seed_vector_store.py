@@ -3,6 +3,12 @@
 Runs a best-effort pass over reports/ and player_matches collection to create
 compact passages and upsert into the Chroma store. Intended for local dev.
 """
+import sys
+from pathlib import Path
+
+REPO_ROOT = str(Path(__file__).resolve().parents[1])
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 from modules.data.report_builder import index_report_passages
 from modules.db.connection import get_db
 from modules.data.report_builder import ReportBuilder

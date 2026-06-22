@@ -1,0 +1,38 @@
+{
+  "laning": {
+    "id": "laning",
+    "label": "laning",
+    "keywords": ["lane", "laning", "cs", "creep", "early", "wave"],
+    "description": "Questions about early-game lane play: creep score, wave management, trading, and early duels."
+  },
+  "vision": {
+    "id": "vision",
+    "label": "vision",
+    "keywords": ["vision", "wards", "ward", "sight", "vision_score", "warding"],
+    "description": "Questions related to vision control: ward placements, vision score, dewarding and map control."
+  },
+  "macro": {
+    "id": "macro",
+    "label": "macro",
+    "keywords": ["objective", "macro", "map", "rotat", "dragon", "baron", "tower"],
+    "description": "Macro-level decisions: rotations, objective timing, wave management across the map and map control."
+  },
+  "teamfights": {
+    "id": "teamfights",
+    "label": "teamfights",
+    "keywords": ["teamfight", "fight", "skirmish", "engage", "peel", "positioning"],
+    "description": "Questions about teamfighting: engage, positioning, target priority and peel during fights."
+  },
+  "pacing": {
+    "id": "pacing",
+    "label": "pacing",
+    "keywords": ["tempo", "pacing", "slow", "fast", "game_length", "timing"],
+    "description": "Pacing and tempo: how fast should you play, slow down or speed up the game, and timing windows."
+  },
+  "mental": {
+    "id": "mental",
+    "label": "mental",
+    "keywords": ["tilt", "mental", "focus", "confidence", "mindset", "morale"],
+    "description": "Mental and psychological aspects: tilt, focus, maintaining composure, and mindset during play."
+  }
+}
