@@ -13,13 +13,13 @@ import os
 import sys
 from pathlib import Path
 from rich.console import Console
-from modules.logger import get_logger
 from datetime import datetime
 import json
 REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
+from modules.logger import get_logger
 from modules.db.connection import get_db
 from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
@@ -46,7 +46,7 @@ def find_context_by_role(db, role: str, limit: int = 3):
             return []
 
 
-def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b"):
+def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b", last_match: bool = False):
     console = Console()
     logger = get_logger()
     db = get_db()
@@ -60,8 +60,8 @@ def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b"):
         logger.debug("Matched keywords: %s", cat.get("matched_keywords"))
     if role:
         # retrieval recipes prefer DB-level heuristics
-        logger.info("Running retrieval recipe for category=%s role=%s", cat.get("category_id"), role)
-        passages = retrieve_for_category(cat.get("category_id"), role, db, limit=5)
+        logger.info("Running retrieval recipe for category=%s role=%s last_match=%s", cat.get("category_id"), role, last_match)
+        passages = retrieve_for_category(cat.get("category_id"), role, db, limit=5, last_match=last_match)
         logger.info("Recipe returned %d passages", len(passages))
         logger.debug("Passages: %s", passages[:5])
 
@@ -111,11 +111,12 @@ def main():
     parser.add_argument("--question", required=True)
     parser.add_argument("--role", required=False)
     parser.add_argument("--model", default="llama3.1:8b")
+    parser.add_argument("--last-match", action="store_true", help="Retrieve context only from the latest match for the role")
     parser.add_argument("--lang", default="es", help="Language for the assistant's reply (default: es).")
     args = parser.parse_args()
 
     # pass language through to PromptEngineer if needed in future
-    ask_coach(args.question, role=args.role, model=args.model)
+    ask_coach(args.question, role=args.role, model=args.model, last_match=args.last_match)
 
 
 if __name__ == "__main__":
