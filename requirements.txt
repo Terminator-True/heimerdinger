@@ -1,0 +1,7 @@
+httpx==0.24.1
+pymongo==4.4.0
+python-dotenv==1.0.0
+rich==13.3.4
+respx==0.20.0  # dev: HTTPX mocking for tests
+pytest==7.4.0
+pytest-asyncio==0.22.0
