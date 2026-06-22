@@ -84,7 +84,9 @@ def ask_coach(question: str, role: str = None, model: str = "llama3.1:8b", last_
             logger.exception("Embedding retrieval failed")
             pass
 
-    prompt = pe.build_prompt({"puuid": "ask_coach", "games_analyzed": "N/A"}, role=role or "coach", passages=passages, language="es")
+    # prefer a short plain text answer for single-match queries
+    output_fmt = "text" if last_match else "text"
+    prompt = pe.build_prompt({"puuid": "ask_coach", "games_analyzed": "N/A"}, role=role or "coach", passages=passages, language="es", output_format=output_fmt)
 
     logger.info("Calling Ollama model=%s; prompt length=%d chars; passages=%d", model, len(prompt), len(passages))
     client = OllamaClient()

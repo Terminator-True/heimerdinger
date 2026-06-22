@@ -48,7 +48,7 @@ class PromptEngineer:
         "Provide concrete advice, next steps, and a 1-2 sentence summary."
     )
 
-    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None, language: str = "es") -> str:
+    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None, language: str = "es", output_format: str = "json") -> str:
         """Compose a richer prompt for the LLM.
 
         The prompt includes:
@@ -92,6 +92,11 @@ Place only the JSON between the backticks. Example:
 ```
 """
 
+        text_instruction = """
+
+IMPORTANT: Provide a single brief paragraph (2-4 short sentences) in plain Spanish summarizing the key findings from the context. Do NOT output JSON or lists. Keep it concise and user-friendly, suitable for a coach's short note.
+"""
+
         # combine into a single prompt string. If passages are provided, include them
         passage_section = ""
         if passages:
@@ -109,4 +114,10 @@ Place only the JSON between the backticks. Example:
             else:
                 lang_instruction = f"Please respond in {language}.\n\n"
 
-        return f"SYSTEM: {system}\n\nUSER: {user}{passage_section}{compact}{lang_instruction}{json_instruction}"
+        # choose instruction by requested output format
+        if output_format == "text":
+            chosen_instruction = text_instruction
+        else:
+            chosen_instruction = json_instruction
+
+        return f"SYSTEM: {system}\n\nUSER: {user}{passage_section}{compact}{lang_instruction}{chosen_instruction}"
