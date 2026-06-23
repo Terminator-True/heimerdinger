@@ -1,135 +1,245 @@
-"""Small PromptEngineer that builds prompts for coaching/advice tasks.
+"""PromptEngineer — builds prompts for coaching/advice tasks with structured stats.
 
-This module contains templates and a small helper to interpolate a player's
-report into a context-rich prompt. Templates are intentionally small; they show
-placeholders and explanation in the docstrings.
-
-Placeholders used in templates:
-- {role}  : the advisor role (e.g. 'coach')
-- {player_name} : player's display name if available
-- {report_summary} : a short summary of the player's report
+Usage:
+    pe = PromptEngineer()
+    prompt = pe.build_prompt(player_report, role='Top', passages=[...])
 """
 from typing import Dict, Optional, List
-import os
 
 
 class PromptEngineer:
     """Builds prompts for the LLM to produce coaching-style advice.
 
-    Example usage:
-        pe = PromptEngineer()
-        prompt = pe.build_prompt({'name': 'Alice', 'notes': 'missed two catches'}, role='coach')
+    The prompt now includes a structured stats block formatted like:
 
-    The system_template and user_template are intentionally small; they're the
-    starting point for more sophisticated prompt engineering later.
+        Jugador: Faker | Campeón: Yone | Rol: Top | Partida: 30min | Victoria: No
+
+        KDA: 8/10/3 | KP: 18% | CS: 54@10min | Gold/min: 426
+        Visión: 11 wards, 2 control wards, visionScore: 0.94/min
+        Daño: 727 DPM | 13.6% del equipo
+        Objetivos: 4 torretas, 1 barón
+        Muertes: 329s muerto en total | max streak vivo: 235s
+
+        Actúa como coach de LoL. Analiza el rendimiento e identifica
+        los 3 principales puntos de mejora con consejos específicos.
     """
 
-    # base system instruction — role gets interpolated
+    # ------------------------------------------------------------------
+    #  Templates
+    # ------------------------------------------------------------------
+
     system_template = (
-        "You are a helpful {role} who provides concise, actionable coaching "
-        "and a short summary. Be positive and specific."
+        "Eres un coach experto de League of Legends con 10+ años de experiencia. "
+        "Tu trabajo es analizar estadísticas de partida y dar consejos "
+        "concretos, accionables y específicos para el rol del jugador. "
+        "Sé directo, constructivo y específico — nada de frases genéricas."
     )
 
-    # role-specific guidance for common MOBA roles
+    # Role-specific guidance
     role_guidance = {
-        "Top": "Focus on lane control, wave management, and trading patterns.",
-        "Jungle": "Focus on pathing, objective timing, gank windows, and vision control.",
-        "Mid": "Focus on roaming, wave manipulation, trading, and matchup awareness.",
-        "Bot": "Focus on CS, trading with support, positioning in lane and teamfights.",
-        "Support": "Focus on vision, roaming, peeling, engage/disengage calls, and warding.",
-        # generic fallback
-        "coach": "Provide general coaching: concrete drills, areas to improve, and quick wins."
+        "Top": "Céntrate en control de oleadas, trades cortos, y visión en la zona superior.",
+        "Jungle": "Céntrate en rutas de limpieza, temporización de objetivos, ventanas de gank y control de visión.",
+        "Mid": "Céntrate en rotaciones, manipulación de oleadas, trades y conocimiento de enfrentamientos.",
+        "Bot": "Céntrate en CS, trades con el support, posicionamiento en línea y teamfights.",
+        "Support": "Céntrate en visión, rotaciones, peel, engage/disengage y priorización de wards.",
+        "coach": "Proporciona entrenamiento general: ejercicios concretos, áreas a mejorar y quick wins."
     }
 
+    # Main user template — {stats_block} is injected by the formatter
     user_template = (
-        "Player: {player_name}\n"
-        "Report: {report_summary}\n"
-        "Role Guidance: {role_guidance}\n"
-        "Provide concrete advice, next steps, and a 1-2 sentence summary."
+        "{stats_block}\n\n"
+        "Role Guidance: {role_guidance}\n\n"
+        "Actúa como coach de LoL. Analiza el rendimiento e identifica "
+        "los 3 principales puntos de mejora con consejos específicos."
     )
 
-    def build_prompt(self, player_report: Dict, role: str = "coach", meta: Optional[Dict] = None, passages: Optional[List[str]] = None, language: str = "es", output_format: str = "json", game_summary: Optional[str] = None, important_points: Optional[List[str]] = None) -> str:
-        """Compose a richer prompt for the LLM.
+    # ------------------------------------------------------------------
+    #  Structured stat formatter
+    # ------------------------------------------------------------------
 
-        The prompt includes:
-          - a short system instruction tailored to the role
-          - the player's report summary
-          - role-specific guidance
-          - an explicit instruction to respond with a JSON payload inside
-            triple backticks (```), containing the keys:
-                areas_of_improvement (list of strings)
-                exercises (list of strings)
-                strengths (list of strings)
-                summary (short string)
+    @staticmethod
+    def _fmt(val, decimals: int = 1) -> str:
+        """Format a numeric value, returning '-' if None."""
+        if val is None:
+            return "-"
+        try:
+            f = float(val)
+            return f"{f:.{decimals}f}"
+        except (ValueError, TypeError):
+            return str(val)
+
+    @staticmethod
+    def _pct(val, decimals: int = 1) -> str:
+        """Format a decimal as percentage string, returning '-' if None."""
+        if val is None:
+            return "-"
+        try:
+            return f"{float(val) * 100:.{decimals}f}%"
+        except (ValueError, TypeError):
+            return "-"
+
+    @classmethod
+    def format_report_stats(cls, report: Dict) -> str:
+        """Format a player report into the structured stats block.
+
+        Accepts either an aggregate report (with a 'metrics' dict containing
+        means) or a per-match dict with raw values.
+
+        Returns a string like:
+            Jugador: Faker | Campeón: Yone | Rol: Top | Partida: 30min | Victoria: No
+            ...
+        """
+        metrics = report.get("metrics") or report
+
+        # --- header line ---
+        name = report.get("player") or report.get("player_name") or report.get("puuid") or "Jugador"
+        champ = report.get("champion") or metrics.get("championName") or "-"
+        role = report.get("role") or metrics.get("individualPosition") or metrics.get("teamPosition") or "-"
+
+        # game duration (seconds → minutes)
+        dur_sec = metrics.get("gameDuration")
+        dur_min_str = f"{dur_sec // 60}min" if dur_sec else "-"
+
+        # win
+        raw_win = metrics.get("win")
+        if raw_win is True or raw_win == "True" or raw_win == 1:
+            win_str = "Sí"
+        elif raw_win is False or raw_win == "False" or raw_win == 0:
+            win_str = "No"
+        else:
+            win_str = "-"
+
+        lines = [f"Jugador: {name} | Campeón: {champ} | Rol: {role} | Partida: {dur_min_str} | Victoria: {win_str}"]
+        lines.append("")
+
+        # --- KDA line ---
+        kills = cls._fmt(metrics.get("kills"))
+        deaths = cls._fmt(metrics.get("deaths"))
+        assists = cls._fmt(metrics.get("assists"))
+        kp = cls._pct(metrics.get("ch_killParticipation"))
+        cs10 = cls._fmt(metrics.get("ch_laneMinionsFirst10Minutes"), 0)
+        gpm = cls._fmt(metrics.get("ch_goldPerMinute"), 0)
+        lines.append(f"KDA: {kills}/{deaths}/{assists} | KP: {kp} | CS: {cs10}@10min | Gold/min: {gpm}")
+
+        # --- Vision line ---
+        wards = cls._fmt(metrics.get("wardsPlaced"), 0)
+        ctrl_wards = cls._fmt(metrics.get("detectorWardsPlaced") or metrics.get("ch_controlWardsPlaced"), 0)
+        vs_pm = cls._fmt(metrics.get("ch_visionScorePerMinute"), 2)
+        lines.append(f"Visión: {wards} wards, {ctrl_wards} control wards, visionScore: {vs_pm}/min")
+
+        # --- Damage line ---
+        dpm = cls._fmt(metrics.get("ch_damagePerMinute"), 0)
+        team_dmg_pct = cls._pct(metrics.get("ch_teamDamagePercentage"))
+        lines.append(f"Daño: {dpm} DPM | {team_dmg_pct} del equipo")
+
+        # --- Objectives line ---
+        turrets = cls._fmt(metrics.get("turretKills"), 0)
+        barons = cls._fmt(metrics.get("baronKills"), 0)
+        dragons = cls._fmt(metrics.get("dragonKills"), 0)
+        # Compute inhibitorKills if available
+        inhibs = cls._fmt(metrics.get("inhibitorKills"), 0)
+        obj_parts = [f"{turrets} torretas", f"{barons} barón"]
+        if dragons != "-":
+            obj_parts.append(f"{dragons} dragón")
+        if inhibs != "-" and float(inhibs) > 0:
+            obj_parts.append(f"{inhibs} inhibidor")
+        lines.append(f"Objetivos: {' | '.join(obj_parts)}")
+
+        # --- Deaths line ---
+        dead = cls._fmt(metrics.get("totalTimeSpentDead"), 0)
+        streak = cls._fmt(metrics.get("longestTimeSpentLiving"), 0)
+        lines.append(f"Muertes: {dead}s muerto en total | max streak vivo: {streak}s")
+
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
+    #  Prompt builder
+    # ------------------------------------------------------------------
+
+    def build_prompt(self,
+                     player_report: Dict,
+                     role: str = "coach",
+                     meta: Optional[Dict] = None,
+                     passages: Optional[List[str]] = None,
+                     language: str = "es",
+                     output_format: str = "text",
+                     game_summary: Optional[str] = None,
+                     important_points: Optional[List[str]] = None) -> str:
+        """Compose a coaching prompt with structured stats.
 
         Args:
-            player_report: dict containing at least `name` or `summary`/`notes`.
+            player_report: dict with player info and 'metrics' sub-dict.
             role: one of Top, Jungle, Mid, Bot, Support, or 'coach'.
-            meta: optional dict with extra context (ignored for now)
+            meta: optional extra context (ignored for now).
+            passages: optional context passages from retrieval.
+            language: response language (default 'es').
+            output_format: 'text' for plain paragraph, 'json' for structured JSON.
+            game_summary: optional short game-level description.
+            important_points: optional list of bullet-point highlights.
 
         Returns:
             A single string with the composed prompt.
         """
-        name = player_report.get("name") or player_report.get("player_name") or player_report.get("puuid") or "Player"
-        summary = player_report.get("summary") or player_report.get("notes") or "Compact report: games_analyzed=%s" % player_report.get("games_analyzed") if isinstance(player_report, dict) else str(player_report)
+        # Build the structured stats block from the report
+        stats_block = self.format_report_stats(player_report)
 
-        system = self.system_template.format(role=role)
-        guidance = self.role_guidance.get(role, self.role_guidance["coach"]) if role else self.role_guidance["coach"]
+        system = self.system_template
+        guidance = self.role_guidance.get(role, self.role_guidance["coach"])
 
-        user = self.user_template.format(player_name=name, report_summary=summary, role_guidance=guidance)
+        user = self.user_template.format(
+            stats_block=stats_block,
+            role_guidance=guidance,
+        )
+
+        # ----- optional sections -----
+        passage_section = ""
+        if passages:
+            passage_section = "\nCONTEXT PASSAGES:\n" + "\n".join(f"- {p}" for p in passages[:8]) + "\n"
+
+        game_section = ""
+        if game_summary:
+            game_section += "\nGAME SUMMARY: " + game_summary.strip() + "\n"
+        if important_points:
+            pts = important_points[:6]
+            game_section += "IMPORTANT POINTS:\n" + "\n".join(f"- {p.strip()}" for p in pts) + "\n"
+
+        # ----- language instruction -----
+        lang_instruction = ""
+        if language:
+            if language.lower() in ("es", "español", "castellano", "spanish"):
+                lang_instruction = "Por favor, responde exclusivamente en castellano.\n\n"
+            else:
+                lang_instruction = f"Please respond in {language}.\n\n"
+
+        # ----- output format instruction -----
+        text_instruction = (
+            "IMPORTANTE: Responde con 2-4 párrafos cortos en español. "
+            "Primero un breve análisis del rendimiento, luego lista "
+            "exactamente 3 puntos de mejora con consejos específicos "
+            "para cada uno. Sé concreto y accionable."
+        )
 
         json_instruction = """
-
-IMPORTANT: Respond with a JSON object only, enclosed in triple backticks ```
+IMPORTANT: Respond with a JSON object only, enclosed in triple backticks ```.
 The JSON MUST contain the following keys:
- - areas_of_improvement: an array of short strings
- - exercises: an array of short strings (practical exercises or drills)
+ - areas_of_improvement: an array of 3 short strings (specific improvement points)
+ - exercises: an array of 3 short strings (practical exercises/drills for each point)
  - strengths: an array of short strings
  - summary: a short 1-2 sentence summary string
-Place only the JSON between the backticks. Example:
+Example:
 ```
 {"areas_of_improvement": ["..."], "exercises": ["..."], "strengths": ["..."], "summary": "..."}
 ```
 """
 
-        text_instruction = """
+        chosen_instruction = text_instruction if output_format == "text" else json_instruction
 
-IMPORTANT: Provide a single brief paragraph (2-4 short sentences) in plain Spanish summarizing the key findings from the context. Do NOT output JSON or lists. Keep it concise and user-friendly, suitable for a coach's short note.
-"""
-
-        # combine into a single prompt string. If passages are provided, include them
-        passage_section = ""
-        if passages:
-            passage_section = "\nCONTEXT PASSAGES:\n" + "\n".join([f"- {p}" for p in passages[:8]]) + "\n"
-
-        # include a compact summary line
-        compact = f"\nCOMPACT SUMMARY: Player={name} Games={player_report.get('games_analyzed', 'N/A')}\n"
-
-        # optional short game-level description and important points to provide
-        game_section = ""
-        if game_summary:
-            game_section += "\nGAME SUMMARY: " + game_summary.strip() + "\n"
-        if important_points:
-            # include up to 6 bullet points to keep prompt small
-            pts = important_points[:6]
-            game_section += "IMPORTANT POINTS:\n"
-            for p in pts:
-                game_section += f"- {p.strip()}\n"
-            game_section += "\n"
-
-        # enforce language at the top of the user prompt to guide the model
-        lang_instruction = ""
-        if language:
-            # normalize Spanish aliases
-            if language.lower() in ("es", "español", "castellano", "spanish"):
-                lang_instruction = "Por favor, responde exclusivamente en castellano. No escribas en otro idioma.\n\n"
-            else:
-                lang_instruction = f"Please respond in {language}.\n\n"
-
-        # choose instruction by requested output format
-        if output_format == "text":
-            chosen_instruction = text_instruction
-        else:
-            chosen_instruction = json_instruction
-
-        return f"SYSTEM: {system}\n\nUSER: {user}{game_section}{passage_section}{compact}{lang_instruction}{chosen_instruction}"
+        # ----- assemble -----
+        return (
+            f"SYSTEM: {system}\n\n"
+            f"USER: {user}"
+            f"{game_section}"
+            f"{passage_section}"
+            f"{lang_instruction}"
+            f"{chosen_instruction}"
+        )

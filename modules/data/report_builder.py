@@ -2,7 +2,7 @@ import json
 from collections import Counter
 from statistics import mean, median
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 
 class ReportBuilder:
@@ -16,6 +16,25 @@ class ReportBuilder:
     def __init__(self, output_dir: Optional[str] = "reports"):
         self.output_dir = Path(output_dir)
 
+    # ------------------------------------------------------------------
+    #  helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _percentile(data: list, pct: float) -> Optional[float]:
+        """Simple linear-interpolation percentile (0..100)."""
+        if not data:
+            return None
+        d = sorted(data)
+        n = len(d)
+        if n == 1:
+            return d[0]
+        rank = (pct / 100.0) * (n - 1)
+        lo = int(rank)
+        hi = min(lo + 1, n - 1)
+        weight = rank - lo
+        return d[lo] * (1 - weight) + d[hi] * weight
+
     def _iter_player_matches(self, player_puuid: str, db) -> Iterable[Dict[str, Any]]:
         """Yield player_matches documents for the given player_puuid.
 
@@ -25,91 +44,204 @@ class ReportBuilder:
         try:
             col = db.get_collection("player_matches")
         except Exception:
-            # try dict-like
             col = db["player_matches"]
 
-        # Expect the collection to support find()
         try:
             for d in col.find({"player_puuid": player_puuid}):
                 yield d
         except Exception:
-            # If the collection is a simple list/dict, attempt a fallback
-        if hasattr(col, "values"):
-            for d in col.values():
-                if d.get("player_puuid") == player_puuid:
-                    yield d
+            if hasattr(col, "values"):
+                for d in col.values():
+                    if d.get("player_puuid") == player_puuid:
+                        yield d
 
+    # ------------------------------------------------------------------
+    #  full-match lookup (from `matches` collection)
+    # ------------------------------------------------------------------
 
-def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] = None) -> Dict[str, Any]:
-    """Try to find the participant object for this player inside various possible
-    placements (doc.parsed_metrics, doc.metrics, doc.match.participants, doc.raw_match).
-    Returns a dict with the raw participant fields (may be empty if not found).
-    """
-    # First, if parsed/metrics already contains any of our target keys, return them
-    parsed = doc.get("parsed_metrics") or doc.get("metrics") or {}
-    # target keys we care about
-    target_keys = [
-        "goldEarned", "goldSpent", "damageDealtToBuildings", "damageDealtToEpicMonsters",
-        "damageDealtToTurrets", "detectorWardsPlaced", "totalDamageDealtToChampions",
-        "totalDamageTaken", "totalHealsOnTeammates", "totalEnemyJungleMinionsKilled",
-        "wardsKilled", "wardsPlaced",
-    ]
+    @staticmethod
+    def _get_full_match(db, match_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch the full match document from the `matches` collection."""
+        try:
+            col = db.get_collection("matches")
+            return col.find_one({"metadata.matchId": match_id})
+        except Exception:
+            try:
+                col = db.setdefault("matches", {})
+                for v in col.values():
+                    if v.get("metadata", {}).get("matchId") == match_id:
+                        return v
+            except Exception:
+                pass
+        return None
 
-    # If parsed contains any of the target keys (possibly under different casings), return matching subset
-    found = {}
-    for k in target_keys:
-        if k in parsed:
-            found[k] = parsed.get(k)
-    if found:
-        return found
+    # ------------------------------------------------------------------
+    #  rich participant extraction (from full match info.participants[])
+    # ------------------------------------------------------------------
 
-    # Try to locate participants array in different possible fields
-    participants = None
-    # common places
-    if isinstance(doc.get("match"), dict):
-        participants = doc["match"].get("participants")
-    if participants is None and isinstance(doc.get("raw_match"), dict):
-        participants = doc["raw_match"].get("participants")
-    if participants is None and isinstance(doc.get("participants"), list):
-        participants = doc.get("participants")
+    @staticmethod
+    def _extract_rich_participant(full_match_doc: Dict[str, Any], player_puuid: str) -> Dict[str, Any]:
+        """Extract ALL coaching-relevant fields organized by category.
 
-    if isinstance(participants, list):
-        # try to match by puuid supplied in doc or passed in
-        puuid_keys = ["puuid", "participantPuuid", "summonerPuuid"]
-        target_puuid = player_puuid or doc.get("player_puuid") or doc.get("player")
+        Works on the full Riot API match document stored in `matches` collection.
+        Returns a flat dict with keys grouped semantically (prefixes).
+        Returns an empty dict if participant cannot be found.
+        """
+        if not full_match_doc:
+            return {}
+
+        info = full_match_doc.get("info") or {}
+        participants: List[Dict] = info.get("participants") or []
+
+        # find the participant matching our puuid
+        target = None
         for p in participants:
-            if not isinstance(p, dict):
+            if p.get("puuid") == player_puuid:
+                target = p
+                break
+        if not target:
+            return {}
+
+        result: Dict[str, Any] = {}
+
+        # ----- identity  (match-level) -----
+        meta = full_match_doc.get("metadata") or {}
+        result["matchId"] = meta.get("matchId")
+        result["gameDuration"] = info.get("gameDuration")
+        result["gameMode"] = info.get("gameMode")
+        result["queueId"] = info.get("queueId")
+        result["gameVersion"] = info.get("gameVersion")
+
+        # ----- basic performance -----
+        for k in ("kills", "deaths", "assists", "championName",
+                  "individualPosition", "teamPosition", "win", "totalMinionsKilled"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- economy -----
+        for k in ("goldEarned", "goldSpent"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- challenges (nested) -----
+        ch = target.get("challenges") or {}
+        challenge_fields = (
+            "goldPerMinute", "laneMinionsFirst10Minutes",
+            "maxCsAdvantageOnLaneOpponent",
+            "damagePerMinute", "teamDamagePercentage", "killParticipation",
+            "visionScorePerMinute", "controlWardsPlaced",
+            "controlWardTimeCoverageInRiverOrEnemyHalf",
+            "baronTakedowns", "turretPlatesTaken",
+            "firstTurretKilled", "firstTurretKilledTime",
+            "skillshotsHit", "skillshotsDodged", "abilityUses",
+            "enemyChampionImmobilizations",
+            "soloKills", "multikills",
+            "deathsByEnemyChamps", "maxKillDeficit",
+        )
+        for k in challenge_fields:
+            if k in ch:
+                result[f"ch_{k}"] = ch[k]
+
+        # ----- damage & impact -----
+        for k in ("totalDamageDealtToChampions",
+                  "damageDealtToObjectives", "damageDealtToBuildings"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- vision -----
+        for k in ("visionScore", "wardsPlaced", "wardsKilled", "detectorWardsPlaced"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- objectives (participant-level) -----
+        for k in ("dragonKills", "baronKills", "inhibitorKills", "turretKills"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- mechanics / cc -----
+        for k in ("totalTimeCCDealt", "timeCCingOthers"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- mistakes / deaths -----
+        for k in ("totalTimeSpentDead", "longestTimeSpentLiving"):
+            if k in target:
+                result[k] = target[k]
+
+        # ----- build & items -----
+        for i in range(7):
+            k = f"item{i}"
+            if k in target:
+                result[k] = target[k]
+        if "legendaryItemUsed" in target:
+            result["legendaryItemUsed"] = target["legendaryItemUsed"]
+        if "perks" in target:
+            result["perks"] = target["perks"]
+
+        # ----- team-level objectives & bans -----
+        teams: List[Dict] = info.get("teams") or []
+        player_team_id = target.get("teamId")
+        for team in teams:
+            if team.get("teamId") != player_team_id:
                 continue
-            matched = False
-            if target_puuid:
-                for pk in puuid_keys:
-                    if p.get(pk) == target_puuid:
-                        matched = True
-                        break
-            # fallback: some participant objects include an 'isMe' or similar flag
-            if not matched and (p.get("isPlayer") or p.get("isMe") or p.get("you")):
-                matched = True
+            result["team_win"] = team.get("win")
+            obj = team.get("objectives") or {}
+            for obj_key in ("baron", "dragon", "tower", "inhibitor", "riftHerald"):
+                o = obj.get(obj_key) or {}
+                result[f"team_{obj_key}Kills"] = o.get("kills")
+                result[f"team_{obj_key}First"] = o.get("first")
+            bans = team.get("bans") or []
+            result["team_bans"] = [b.get("championId") for b in bans[:5]
+                                   if b.get("championId") is not None]
+            break
 
-            if matched:
-                for k in target_keys:
-                    # some providers use camelCase or snake_case; try variants
-                    if k in p:
-                        found[k] = p.get(k)
-                    else:
-                        # try snake_case mapping
-                        snake = ''.join(['_' + c.lower() if c.isupper() else c for c in k]).lstrip('_')
-                        if snake in p:
-                            found[k] = p.get(snake)
-                return found
+        return result
 
-    # nothing found
-    return {}
+    # ------------------------------------------------------------------
+    #  aggregate helpers  (used by build_player_report)
+    # ------------------------------------------------------------------
 
-    def build_player_report(self, player_puuid: str, db, pro_reference: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    @staticmethod
+    def _accumulate_numeric(acc: Dict[str, List[float]], key: str, value: Any):
+        """Append *value* to the list for *key* if it is a number."""
+        if value is None:
+            return
+        try:
+            acc.setdefault(key, []).append(float(value))
+        except (ValueError, TypeError):
+            pass  # non-numeric — skip
+
+    @staticmethod
+    def _aggregate(acc: Dict[str, List[float]], names: Iterable[str]) -> Dict[str, Any]:
+        """Return a flat metrics dict with mean, median, p25, p75 per key."""
+        out: Dict[str, Any] = {}
+        for name in names:
+            vals = acc.get(name)
+            if not vals:
+                continue
+            try:
+                m = mean(vals)
+                med = median(vals)
+                p25 = ReportBuilder._percentile(vals, 25)
+                p75 = ReportBuilder._percentile(vals, 75)
+                out[name] = round(m, 3)
+                out[f"{name}_median"] = round(med, 3) if med is not None else None
+                out[f"{name}_p25"] = round(p25, 3) if p25 is not None else None
+                out[f"{name}_p75"] = round(p75, 3) if p75 is not None else None
+            except Exception:
+                pass
+        return out
+
+    # ------------------------------------------------------------------
+    #  report builders
+    # ------------------------------------------------------------------
+
+    def build_player_report(self, player_puuid: str, db,
+                            pro_reference: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         docs = list(self._iter_player_matches(player_puuid, db))
         games = len(docs)
         if games == 0:
-            report = {
+            return {
                 "player": player_puuid,
                 "role": None,
                 "champion": None,
@@ -118,30 +250,23 @@ def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] 
                 "pro_reference": None,
                 "deltas": {},
             }
-            return report
 
-        cs_vals = []
-        kda_vals = []
-        champions = []
-        roles = []
+        cs_vals: List[float] = []
+        kda_vals: List[float] = []
+        champions: List[str] = []
+        roles: List[str] = []
 
-        # collect participant-level stats across matches
-        participant_keys = [
-            "goldEarned", "goldSpent", "damageDealtToBuildings", "damageDealtToEpicMonsters",
-            "damageDealtToTurrets", "detectorWardsPlaced", "totalDamageDealtToChampions",
-            "totalDamageTaken", "totalHealsOnTeammates", "totalEnemyJungleMinionsKilled",
-            "wardsKilled", "wardsPlaced",
-        ]
-        part_lists = {k: [] for k in participant_keys}
+        # accumulator for ALL numeric fields extracted from full match participants
+        numeric_acc: Dict[str, List[float]] = {}
+        # keep track of which keys we accumulate so we know what to aggregate
+        seen_numeric_keys: set = set()
 
         for d in docs:
             parsed = d.get("parsed_metrics") or d.get("metrics") or {}
-            # parsed_metrics may have nested numeric values; be defensive
+
+            # --- legacy basic stats ---
             cs = parsed.get("cs_per_min")
-            if cs is None:
-                # maybe stored as cs and duration elsewhere; skip
-                pass
-            else:
+            if cs is not None:
                 try:
                     cs_vals.append(float(cs))
                 except Exception:
@@ -162,62 +287,50 @@ def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] 
             if role:
                 roles.append(role)
 
-            # extract participant stats (best-effort)
+            # --- rich extraction from full match document ---
             try:
-                pstats = _extract_participant_stats(d, player_puuid)
-                for k, v in pstats.items():
-                    try:
-                        if v is None:
-                            continue
-                        part_lists[k].append(float(v))
-                    except Exception:
-                        # keep non-numeric as-is? skip for now
-                        pass
+                match_id = d.get("matchId") or parsed.get("matchId")
+                if match_id:
+                    full = self._get_full_match(db, match_id)
+                    if full:
+                        rich = self._extract_rich_participant(full, player_puuid)
+                        for rk, rv in rich.items():
+                            # categorical fields → accumulate for mode later
+                            # numeric fields → accumulate and aggregate
+                            rk_lower = rk.lower()
+                            if rk in ("matchId", "championName", "gameMode", "gameVersion",
+                                      "individualPosition", "teamPosition",
+                                      "perks", "team_bans", "legendaryItemUsed"):
+                                # non-numeric: keep in raw form (store latest / first)
+                                pass
+                            elif any(x in rk_lower for x in ("item", "perks", "bans")):
+                                # items / perks / bans → store as-is (not aggregated)
+                                pass
+                            else:
+                                self._accumulate_numeric(numeric_acc, rk, rv)
+                                seen_numeric_keys.add(rk)
             except Exception:
                 pass
 
-        metrics = {}
+        # --- build metrics ---
+        metrics: Dict[str, Any] = {}
+
         if cs_vals:
             metrics["cs_per_min"] = mean(cs_vals)
         if kda_vals:
             metrics["kda"] = mean(kda_vals)
 
-        # aggregate participant-level stats (means, median, and 25/75 percentiles)
-        def _percentile(data: list, pct: float) -> float:
-            # simple linear interpolation percentile (0..100)
-            if not data:
-                return None
-            d = sorted(data)
-            n = len(d)
-            if n == 1:
-                return d[0]
-            rank = (pct / 100.0) * (n - 1)
-            lo = int(rank)
-            hi = min(lo + 1, n - 1)
-            weight = rank - lo
-            return d[lo] * (1 - weight) + d[hi] * weight
+        # aggregate all rich numeric fields
+        aggregated = self._aggregate(numeric_acc, seen_numeric_keys)
+        metrics.update(aggregated)
 
-        for k, vals in part_lists.items():
-            if vals:
-                try:
-                    m = mean(vals)
-                    med = median(vals)
-                    p25 = _percentile(vals, 25)
-                    p75 = _percentile(vals, 75)
-                    metrics[k] = round(m, 3)
-                    # add additional statistics under explicit keys
-                    metrics[f"{k}_median"] = round(med, 3) if med is not None else None
-                    metrics[f"{k}_p25"] = round(p25, 3) if p25 is not None else None
-                    metrics[f"{k}_p75"] = round(p75, 3) if p75 is not None else None
-                except Exception:
-                    pass
-
+        # mode for categoricals
         champion = Counter(champions).most_common(1)[0][0] if champions else None
         role = Counter(roles).most_common(1)[0][0] if roles else None
 
-        deltas = {}
+        # deltas
+        deltas: Dict[str, Any] = {}
         if pro_reference:
-            # compute player's metric minus pro_reference (negative means below pro)
             for k, v in metrics.items():
                 pref = pro_reference.get(k)
                 if pref is None:
@@ -230,75 +343,80 @@ def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] 
             "role": role,
             "champion": champion,
             "games_analyzed": games,
-            "metrics": {k: round(v, 3) for k, v in metrics.items()},
+            "metrics": metrics,
             "pro_reference": pro_reference if pro_reference is not None else None,
             "deltas": deltas,
         }
 
-        # Persist report to DB and disk idempotently
         self.save_report(report, db)
-        # Index compact passages into the vector store (best-effort)
         try:
-            from modules.data.report_builder import index_report_passages as _index_fn
-
-            # call the local helper defined below
             index_report_passages(report)
         except Exception:
-            # if indexing fails or dependencies missing, ignore
             pass
 
         return report
 
+    # ------------------------------------------------------------------
+
     def save_report(self, report: Dict[str, Any], db) -> None:
-        # Save to DB (reports collection) idempotently
         try:
             col = db.get_collection("reports")
         except Exception:
             col = db.setdefault("reports", {})
 
-        # Upsert-like behavior for pymongo collection
         try:
-            # Try pymongo style update
             filter_q = {"player": report.get("player")}
             col.update_one(filter_q, {"$set": report}, upsert=True)
         except Exception:
-            # Fallback for dict-backed collection
             if isinstance(col, dict):
                 col[report.get("player")] = report
 
-        # Persist to disk under reports/{player_puuid}.json
         try:
             self.output_dir.mkdir(parents=True, exist_ok=True)
             out_path = self.output_dir / f"{report.get('player')}.json"
             with out_path.open("w", encoding="utf-8") as fh:
                 json.dump(report, fh, ensure_ascii=False, indent=2)
         except Exception:
-            # Disk failures should not raise during report creation
             pass
 
-    def build_match_report(self, match_doc: Dict[str, Any], db) -> Dict[str, Any]:
-        """Generate and persist a compact report for a single match document.
+    # ------------------------------------------------------------------
 
-        The match_doc is expected to be a player_matches document containing
-        parsed_metrics and match-level metadata.
-        """
+    def build_match_report(self, match_doc: Dict[str, Any], db) -> Dict[str, Any]:
+        """Single-match report enriched with full match data when available."""
         try:
             parsed = match_doc.get('parsed_metrics') or match_doc.get('metrics') or {}
             player = match_doc.get('player_puuid') or parsed.get('player')
             match_id = match_doc.get('matchId') or match_doc.get('id') or parsed.get('matchId')
+
+            metrics = dict(parsed) if isinstance(parsed, dict) else {}
+
+            # try to enrich with full match data
+            try:
+                if match_id:
+                    full = self._get_full_match(db, match_id)
+                    if full:
+                        rich = self._extract_rich_participant(full, player)
+                        # merge, with rich data taking precedence for known keys
+                        for rk, rv in rich.items():
+                            if rv is not None:
+                                metrics[rk] = rv
+            except Exception:
+                pass
+
             report = {
                 'player': player,
                 'matchId': match_id,
                 'champion': match_doc.get('champion') or parsed.get('champion'),
                 'games_analyzed': 1,
-                'metrics': parsed,
+                'metrics': metrics,
                 'role': match_doc.get('role') or parsed.get('role'),
             }
 
-            # save per-match report keyed by player_match
+            # save to DB
             try:
                 col = db.get_collection('reports')
-                col.update_one({'player': report.get('player'), 'matchId': report.get('matchId')}, {'$set': report}, upsert=True)
+                col.update_one({'player': report.get('player'), 'matchId': report.get('matchId')},
+                               {'$set': report}, upsert=True)
             except Exception:
                 rcol = db.setdefault('reports', {})
                 rcol[f"{report.get('player')}_{report.get('matchId')}"] = report
@@ -313,7 +431,6 @@ def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] 
             except Exception:
                 pass
 
-            # index this match report as passages
             try:
                 index_report_passages(report)
             except Exception:
@@ -324,17 +441,18 @@ def _extract_participant_stats(doc: Dict[str, Any], player_puuid: Optional[str] 
             return {}
 
 
+# ======================================================================
+# module-level helper for passage indexing
+# ======================================================================
+
 def index_report_passages(report: Dict[str, Any]) -> None:
     """Create compact textual passages from a player report and upsert into vector store.
 
-    This is best-effort: if embedding libraries or the vector store are not
-    available, the function will silently return without raising so the
-    main pipeline is not blocked.
+    Best-effort: silently returns if embeddings/vector store are unavailable.
     """
     try:
         recent = report.get("recent_games") or []
         if not recent:
-            # Nothing to index
             return
 
         passages = []
@@ -342,15 +460,19 @@ def index_report_passages(report: Dict[str, Any]) -> None:
         ids = []
         for g in recent[:50]:
             mid = g.get("matchId") or g.get("id") or "unknown"
-            text = f"match:{mid} champ:{g.get('champion')} result:{g.get('result')} kda:{g.get('kda')} highlights:{(g.get('highlights') or '')[:140]}"
+            text = (
+                f"match:{mid} champ:{g.get('champion')} "
+                f"result:{g.get('result')} kda:{g.get('kda')} "
+                f"highlights:{(g.get('highlights') or '')[:140]}"
+            )
             passages.append(text)
-            metadatas.append({"player": report.get("player"), "matchId": mid, "champion": g.get('champion')})
+            metadatas.append({"player": report.get("player"), "matchId": mid,
+                              "champion": g.get('champion')})
             ids.append(f"{report.get('player')}_{mid}")
 
         if not passages:
             return
 
-        # import embedder and store lazily so missing deps don't break the pipeline
         try:
             from modules.embeddings.embedder import Embedder
             from modules.embeddings.store import VectorStore
@@ -360,7 +482,7 @@ def index_report_passages(report: Dict[str, Any]) -> None:
         embedder = Embedder()
         embeddings = embedder.embed_texts(passages)
         store = VectorStore()
-        store.upsert_docs(ids=ids, texts=passages, embeddings=embeddings, metadatas=metadatas)
+        store.upsert_docs(ids=ids, texts=passages, embeddings=embeddings,
+                          metadatas=metadatas)
     except Exception:
-        # Do not let indexing failures break the pipeline
         return

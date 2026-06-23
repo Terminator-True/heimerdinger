@@ -1,0 +1,419 @@
+{
+  "coaching_schema_version": "1.0",
+  "description": "Schema de extracción de datos de la Riot API orientado a coaching de e-sports por rol. Cada sección define qué campos extraer, cómo interpretarlos y qué benchmarks usar para el análisis con LLaMA.",
+
+  "match_context": {
+    "description": "Contexto general de la partida. Siempre incluir en el prompt.",
+    "fields": {
+      "matchId":         { "source": "metadata.matchId" },
+      "gameVersion":     { "source": "info.gameVersion", "note": "Importante para saber el parche y meta vigente" },
+      "gameDuration_s":  { "source": "info.gameDuration", "note": "En segundos. Dividir /60 para minutos" },
+      "gameMode":        { "source": "info.gameMode" },
+      "queueId":         { "source": "info.queueId", "note": "400=Normal, 420=SoloQ, 440=Flex" },
+      "platformId":      { "source": "info.platformId" }
+    },
+    "team_objectives": {
+      "description": "Extrae para AMBOS equipos (teamId 100 y 200)",
+      "fields": {
+        "teamId":           { "source": "info.teams[].teamId" },
+        "win":              { "source": "info.teams[].win" },
+        "bans":             { "source": "info.teams[].bans[].championId", "note": "Lista de 5 bans por equipo" },
+        "baron_first":      { "source": "info.teams[].objectives.baron.first" },
+        "baron_kills":      { "source": "info.teams[].objectives.baron.kills" },
+        "dragon_first":     { "source": "info.teams[].objectives.dragon.first" },
+        "dragon_kills":     { "source": "info.teams[].objectives.dragon.kills" },
+        "tower_first":      { "source": "info.teams[].objectives.tower.first" },
+        "tower_kills":      { "source": "info.teams[].objectives.tower.kills" },
+        "inhibitor_first":  { "source": "info.teams[].objectives.inhibitor.first" },
+        "inhibitor_kills":  { "source": "info.teams[].objectives.inhibitor.kills" },
+        "riftHerald_first": { "source": "info.teams[].objectives.riftHerald.first" },
+        "riftHerald_kills": { "source": "info.teams[].objectives.riftHerald.kills" },
+        "champion_kills":   { "source": "info.teams[].objectives.champion.kills" }
+      }
+    }
+  },
+
+  "player_base": {
+    "description": "Datos comunes a todos los roles. Extraer para cada participante.",
+    "identity": {
+      "riotId":          { "source": "riotIdGameName" },
+      "puuid":           { "source": "puuid" },
+      "championName":    { "source": "championName" },
+      "championId":      { "source": "championId" },
+      "teamId":          { "source": "teamId" },
+      "teamPosition":    { "source": "teamPosition", "note": "TOP / JUNGLE / MIDDLE / BOTTOM / UTILITY" },
+      "win":             { "source": "win" },
+      "champLevel":      { "source": "champLevel" },
+      "summonerLevel":   { "source": "summonerLevel" }
+    },
+    "combat": {
+      "kills":           { "source": "kills" },
+      "deaths":          { "source": "deaths" },
+      "assists":         { "source": "assists" },
+      "kda":             { "source": "challenges.kda" },
+      "killParticipation": { "source": "challenges.killParticipation", "format": "percent" },
+      "soloKills":       { "source": "challenges.soloKills" },
+      "multikills":      { "source": "challenges.multikills" },
+      "doubleKills":     { "source": "doubleKills" },
+      "tripleKills":     { "source": "tripleKills" },
+      "killingSprees":   { "source": "killingSprees" },
+      "largestKillingSpree": { "source": "largestKillingSpree" }
+    },
+    "economy": {
+      "goldEarned":       { "source": "goldEarned" },
+      "goldSpent":        { "source": "goldSpent" },
+      "goldPerMinute":    { "source": "challenges.goldPerMinute" },
+      "totalMinionsKilled": { "source": "totalMinionsKilled" },
+      "neutralMinionsKilled": { "source": "neutralMinionsKilled" },
+      "itemsPurchased":   { "source": "itemsPurchased" },
+      "items":            { "source": ["item0","item1","item2","item3","item4","item5"], "note": "IDs de items. Resolver nombres con Data Dragon" },
+      "legendaryItems":   { "source": "challenges.legendaryItemUsed" },
+      "consumablesPurchased": { "source": "consumablesPurchased" }
+    },
+    "damage": {
+      "totalDamageToChampions": { "source": "totalDamageDealtToChampions" },
+      "damagePerMinute":        { "source": "challenges.damagePerMinute" },
+      "teamDamagePercentage":   { "source": "challenges.teamDamagePercentage", "format": "percent" },
+      "physicalDamageToChampions": { "source": "physicalDamageDealtToChampions" },
+      "magicDamageToChampions":    { "source": "magicDamageDealtToChampions" },
+      "trueDamageToChampions":     { "source": "trueDamageDealtToChampions" },
+      "totalDamageTaken":       { "source": "totalDamageTaken" },
+      "damageTakenOnTeamPercentage": { "source": "challenges.damageTakenOnTeamPercentage", "format": "percent" },
+      "damageSelfMitigated":    { "source": "damageSelfMitigated" },
+      "damageToObjectives":     { "source": "damageDealtToObjectives" },
+      "damageToBuildings":      { "source": "damageDealtToBuildings" }
+    },
+    "survival": {
+      "totalTimeSpentDead":   { "source": "totalTimeSpentDead", "note": "Segundos muerto. Crítico para evaluar impacto de muertes" },
+      "longestTimeAlive":     { "source": "longestTimeSpentLiving" },
+      "deathsByEnemyChamps":  { "source": "challenges.deathsByEnemyChamps" },
+      "maxKillDeficit":       { "source": "challenges.maxKillDeficit" }
+    },
+    "vision": {
+      "visionScore":          { "source": "visionScore" },
+      "visionScorePerMinute": { "source": "challenges.visionScorePerMinute" },
+      "wardsPlaced":          { "source": "wardsPlaced" },
+      "wardsKilled":          { "source": "wardsKilled" },
+      "controlWardsPlaced":   { "source": "challenges.controlWardsPlaced" },
+      "detectorWardsPlaced":  { "source": "detectorWardsPlaced" },
+      "stealthWardsPlaced":   { "source": "challenges.stealthWardsPlaced" },
+      "visionScoreAdvantageVsLane": { "source": "challenges.visionScoreAdvantageLaneOpponent" }
+    },
+    "mechanics": {
+      "skillshotsHit":         { "source": "challenges.skillshotsHit" },
+      "skillshotsDodged":      { "source": "challenges.skillshotsDodged" },
+      "abilityUses":           { "source": "challenges.abilityUses" },
+      "enemyImmobilizations":  { "source": "challenges.enemyChampionImmobilizations" },
+      "timeCCingOthers":       { "source": "timeCCingOthers" },
+      "totalTimeCCDealt":      { "source": "totalTimeCCDealt" },
+      "spell1Casts":           { "source": "spell1Casts" },
+      "spell2Casts":           { "source": "spell2Casts" },
+      "spell3Casts":           { "source": "spell3Casts" },
+      "spell4Casts":           { "source": "spell4Casts" }
+    },
+    "objectives": {
+      "turretKills":       { "source": "turretKills" },
+      "turretTakedowns":   { "source": "turretTakedowns" },
+      "turretsLost":       { "source": "turretsLost" },
+      "inhibitorKills":    { "source": "inhibitorKills" },
+      "baronKills":        { "source": "baronKills" },
+      "dragonKills":       { "source": "dragonKills" },
+      "objectivesStolen":  { "source": "objectivesStolen" }
+    },
+    "pings": {
+      "description": "Refleja comunicación y awareness del mapa",
+      "allInPings":       { "source": "allInPings" },
+      "assistMePings":    { "source": "assistMePings" },
+      "dangerPings":      { "source": "dangerPings" },
+      "enemyMissingPings":{ "source": "enemyMissingPings" },
+      "commandPings":     { "source": "commandPings" },
+      "getBackPings":     { "source": "getBackPings" },
+      "onMyWayPings":     { "source": "onMyWayPings" }
+    },
+    "perks": {
+      "primaryStyle":  { "source": "perks.styles[0].style", "note": "ID del árbol de runas principal" },
+      "subStyle":      { "source": "perks.styles[1].style" },
+      "keystone":      { "source": "perks.styles[0].selections[0].perk", "note": "Runa piedra angular" }
+    }
+  },
+
+  "role_specific": {
+
+    "Top": {
+      "coaching_focus": "Céntrate en control de oleadas, trades cortos, y visión en la zona superior.",
+      "key_metrics": {
+        "laning_phase": {
+          "csAt10min":             { "source": "challenges.laneMinionsFirst10Minutes", "benchmark": ">70 bueno, >80 excelente" },
+          "csAdvantageVsOpponent": { "source": "challenges.maxCsAdvantageOnLaneOpponent", "note": "Ventaja máxima de CS sobre rival" },
+          "levelLeadVsOpponent":   { "source": "challenges.maxLevelLeadLaneOpponent" },
+          "earlyGoldExpAdvantage": { "source": "challenges.earlyLaningPhaseGoldExpAdvantage" },
+          "laningPhaseAdvantage":  { "source": "challenges.laningPhaseGoldExpAdvantage" }
+        },
+        "split_push": {
+          "turretPlatesTaken":   { "source": "challenges.turretPlatesTaken", "benchmark": ">5 activo en planchas" },
+          "soloTurretsLategame": { "source": "challenges.soloTurretsLategame" },
+          "firstTurretKilled":   { "source": "challenges.firstTurretKilled" },
+          "firstTurretTime":     { "source": "challenges.firstTurretKilledTime", "note": "Segundos. <900 = muy rápido" }
+        },
+        "teleport_usage": {
+          "summoner1Id":   { "source": "summoner1Id", "note": "12=TP, 4=Flash, 14=Ignite" },
+          "summoner2Id":   { "source": "summoner2Id" },
+          "tp_casts":      { "source": "summoner1Casts", "note": "Nº de veces que usó el hechizo 1" }
+        },
+        "vision_top": {
+          "visionScoreAdvantage": { "source": "challenges.visionScoreAdvantageLaneOpponent", "benchmark": ">1 domina visión vs rival" },
+          "controlWardCoverage":  { "source": "challenges.controlWardTimeCoverageInRiverOrEnemyHalf", "format": "percent", "benchmark": ">0.4 buena cobertura" }
+        },
+        "teamfight_contribution": {
+          "killParticipation":     { "source": "challenges.killParticipation", "benchmark": ">0.50 en top, suele ser más bajo ~0.40" },
+          "immobilizeAndKill":     { "source": "challenges.immobilizeAndKillWithAlly" },
+          "outnumberedKills":      { "source": "challenges.outnumberedKills" },
+          "killsNearEnemyTurret":  { "source": "challenges.killsNearEnemyTurret" }
+        }
+      },
+      "llm_prompt_fields": [
+        "championName", "win", "kills", "deaths", "assists", "kda",
+        "laneMinionsFirst10Minutes", "maxCsAdvantageOnLaneOpponent", "goldPerMinute",
+        "turretPlatesTaken", "soloTurretsLategame", "firstTurretKilledTime",
+        "visionScore", "controlWardsPlaced", "visionScoreAdvantageLaneOpponent",
+        "killParticipation", "totalTimeSpentDead", "damagePerMinute",
+        "summoner1Id", "summoner2Id", "items"
+      ]
+    },
+
+    "Jungle": {
+      "coaching_focus": "Céntrate en rutas de limpieza, temporización de objetivos, ventanas de gank y control de visión.",
+      "key_metrics": {
+        "clear_efficiency": {
+          "jungleCsBefore10min":       { "source": "challenges.jungleCsBefore10Minutes", "benchmark": ">50 bueno, >60 excelente" },
+          "alliedJungleMinionsKilled": { "source": "challenges.alliedJungleMonsterKills" },
+          "enemyJungleMonsterKills":   { "source": "challenges.enemyJungleMonsterKills" },
+          "moreEnemyJungleThanOpponent": { "source": "challenges.moreEnemyJungleThanOpponent", "note": "Positivo = invades bien al rival" },
+          "scuttleCrabKills":          { "source": "challenges.scuttleCrabKills", "benchmark": ">2 domina los cangrejos" },
+          "buffsStolen":               { "source": "challenges.buffsStolen" },
+          "epicMonsterSteals":         { "source": "challenges.epicMonsterSteals" }
+        },
+        "ganks": {
+          "killsOnLanersEarlyJungle":     { "source": "challenges.killsOnLanersEarlyJungleAsJungler" },
+          "takedownsFirst15min":          { "source": "challenges.takedownsFirstXMinutes", "note": "Primeros 15 min" },
+          "killAfterHiddenWithAlly":      { "source": "challenges.killAfterHiddenWithAlly", "note": "Kills emboscando con aliado" },
+          "epicMonsterKillsNearJungler":  { "source": "challenges.epicMonsterKillsNearEnemyJungler" }
+        },
+        "objectives": {
+          "baronTakedowns":     { "source": "challenges.baronTakedowns" },
+          "dragonTakedowns":    { "source": "challenges.dragonTakedowns" },
+          "earliestBaron":      { "source": "challenges.earliestBaron", "note": "Segundos. <1800 = muy temprano" },
+          "earliestDragon":     { "source": "challenges.earliestDragonTakedown" },
+          "damageToEpicMonsters": { "source": "damageDealtToEpicMonsters", "benchmark": ">20000 buen daño a objetivos" },
+          "voidMonsterKill":    { "source": "challenges.voidMonsterKill" },
+          "riftHeraldTakedowns":{ "source": "challenges.riftHeraldTakedowns" }
+        },
+        "vision_jungle": {
+          "visionScorePerMinute":   { "source": "challenges.visionScorePerMinute", "benchmark": ">1.0 bueno para jungla" },
+          "stealthWardsPlaced":     { "source": "challenges.stealthWardsPlaced" },
+          "controlWardsPlaced":     { "source": "challenges.controlWardsPlaced", "benchmark": ">3 mínimo por partida" },
+          "wardTakedownsBefore20m": { "source": "challenges.wardTakedownsBefore20M" }
+        },
+        "pathing_proxies": {
+          "laningPhaseGoldExpAdvantage": { "source": "challenges.laningPhaseGoldExpAdvantage", "note": "1 = ventaja vs jungler rival" },
+          "initialBuffCount":            { "source": "challenges.initialBuffCount", "note": "Buffs tomados al inicio (leash)" },
+          "initialCrabCount":            { "source": "challenges.initialCrabCount" }
+        }
+      },
+      "llm_prompt_fields": [
+        "championName", "win", "kills", "deaths", "assists", "kda",
+        "jungleCsBefore10Minutes", "alliedJungleMonsterKills", "moreEnemyJungleThanOpponent",
+        "scuttleCrabKills", "baronTakedowns", "dragonTakedowns", "earliestDragonTakedown",
+        "killsOnLanersEarlyJungleAsJungler", "takedownsFirstXMinutes",
+        "damageDealtToEpicMonsters", "goldPerMinute", "killParticipation",
+        "visionScorePerMinute", "controlWardsPlaced", "totalTimeSpentDead", "items"
+      ]
+    },
+
+    "Mid": {
+      "coaching_focus": "Céntrate en rotaciones, manipulación de oleadas, trades y conocimiento de enfrentamientos.",
+      "key_metrics": {
+        "laning": {
+          "csAt10min":             { "source": "challenges.laneMinionsFirst10Minutes", "benchmark": ">70 bueno, >85 excelente para mid" },
+          "csAdvantageVsOpponent": { "source": "challenges.maxCsAdvantageOnLaneOpponent" },
+          "levelLeadVsOpponent":   { "source": "challenges.maxLevelLeadLaneOpponent", "benchmark": ">1 en min 15 es ventaja real" },
+          "soloKills":             { "source": "challenges.soloKills", "benchmark": ">1 muestra dominancia de línea" },
+          "quickSoloKills":        { "source": "challenges.quickSoloKills" }
+        },
+        "roaming": {
+          "killsOnOtherLanesEarly":  { "source": "challenges.killsOnOtherLanesEarlyJungleAsLaner", "note": "Indica rotaciones tempranas" },
+          "pickKillWithAlly":        { "source": "challenges.pickKillWithAlly", "benchmark": ">5 buen roaming" },
+          "takedownsFirstXMinutes":  { "source": "challenges.takedownsFirstXMinutes" },
+          "killsNearEnemyTurret":    { "source": "challenges.killsNearEnemyTurret" }
+        },
+        "mechanics_mid": {
+          "skillshotsHit":       { "source": "challenges.skillshotsHit" },
+          "skillshotsDodged":    { "source": "challenges.skillshotsDodged" },
+          "landSkillShotsEarly": { "source": "challenges.landSkillShotsEarlyGame", "benchmark": ">15 precisión alta en early" },
+          "dodgeSkillShots":     { "source": "challenges.dodgeSkillShotsSmallWindow" },
+          "multiKillOneSpell":   { "source": "challenges.multiKillOneSpell" }
+        },
+        "wave_and_roam": {
+          "turretPlatesTaken":      { "source": "challenges.turretPlatesTaken" },
+          "firstTurretKilled":      { "source": "challenges.firstTurretKilled" },
+          "firstTurretTime":        { "source": "challenges.firstTurretKilledTime" },
+          "getTakedownsAllLanes":   { "source": "challenges.getTakedownsInAllLanesEarlyJungleAsLaner", "note": "1 = gankeó todas las líneas temprano" }
+        },
+        "damage_mid": {
+          "damagePerMinute":        { "source": "challenges.damagePerMinute", "benchmark": ">800 DPM esperado para mid carry" },
+          "teamDamagePercentage":   { "source": "challenges.teamDamagePercentage", "benchmark": ">0.25 mid debe liderar daño" },
+          "enemyImmobilizations":   { "source": "challenges.enemyChampionImmobilizations" }
+        }
+      },
+      "llm_prompt_fields": [
+        "championName", "win", "kills", "deaths", "assists", "kda",
+        "laneMinionsFirst10Minutes", "maxCsAdvantageOnLaneOpponent", "maxLevelLeadLaneOpponent",
+        "soloKills", "killsOnOtherLanesEarlyJungleAsLaner", "pickKillWithAlly",
+        "damagePerMinute", "teamDamagePercentage", "skillshotsHit", "skillshotsDodged",
+        "turretPlatesTaken", "firstTurretKilledTime", "goldPerMinute",
+        "visionScore", "totalTimeSpentDead", "killParticipation", "items"
+      ]
+    },
+
+    "Bot": {
+      "coaching_focus": "Céntrate en CS, trades con el support, posicionamiento en línea y teamfights.",
+      "key_metrics": {
+        "laning_bot": {
+          "csAt10min":             { "source": "challenges.laneMinionsFirst10Minutes", "benchmark": ">75 bueno, >90 excelente para ADC" },
+          "csAdvantageVsOpponent": { "source": "challenges.maxCsAdvantageOnLaneOpponent" },
+          "goldPerMinute":         { "source": "challenges.goldPerMinute", "benchmark": ">450 GPM esperado en ADC" },
+          "turretPlatesTaken":     { "source": "challenges.turretPlatesTaken", "benchmark": ">5 agresivo en planchas" }
+        },
+        "positioning": {
+          "skillshotsDodged":         { "source": "challenges.skillshotsDodged", "benchmark": ">80 excelente evasión" },
+          "survivedSingleDigitHp":    { "source": "challenges.survivedSingleDigitHpCount", "note": "Escapó con <10% HP" },
+          "survivedThreeImmobilizes": { "source": "challenges.survivedThreeImmobilizesInFight" },
+          "dodgeSkillShots":          { "source": "challenges.dodgeSkillShotsSmallWindow" },
+          "longestTimeAlive":         { "source": "longestTimeSpentLiving" }
+        },
+        "carry_potential": {
+          "damagePerMinute":        { "source": "challenges.damagePerMinute", "benchmark": ">900 DPM esperado ADC" },
+          "teamDamagePercentage":   { "source": "challenges.teamDamagePercentage", "benchmark": ">0.30 ADC debe liderar daño" },
+          "largestCriticalStrike":  { "source": "largestCriticalStrike" },
+          "killingSprees":          { "source": "killingSprees" },
+          "multikills":             { "source": "challenges.multikills" }
+        },
+        "objectives_bot": {
+          "turretKills":         { "source": "turretKills" },
+          "damageToBuildings":   { "source": "damageDealtToBuildings" },
+          "firstBloodKill":      { "source": "firstBloodKill" },
+          "firstBloodAssist":    { "source": "firstBloodAssist" }
+        },
+        "synergy_with_support": {
+          "pickKillWithAlly":        { "source": "challenges.pickKillWithAlly" },
+          "immobilizeAndKillWithAlly": { "source": "challenges.immobilizeAndKillWithAlly" },
+          "killParticipation":       { "source": "challenges.killParticipation" }
+        }
+      },
+      "llm_prompt_fields": [
+        "championName", "win", "kills", "deaths", "assists", "kda",
+        "laneMinionsFirst10Minutes", "maxCsAdvantageOnLaneOpponent", "goldPerMinute",
+        "damagePerMinute", "teamDamagePercentage", "largestCriticalStrike",
+        "skillshotsDodged", "longestTimeSpentLiving", "survivedSingleDigitHpCount",
+        "killParticipation", "multikills", "turretKills", "damageDealtToBuildings",
+        "totalTimeSpentDead", "visionScore", "controlWardsPlaced", "items"
+      ]
+    },
+
+    "Support": {
+      "coaching_focus": "Céntrate en visión, rotaciones, peel, engage/disengage y priorización de wards.",
+      "key_metrics": {
+        "vision_support": {
+          "visionScore":              { "source": "visionScore", "benchmark": ">50 bueno, >70 excelente para support" },
+          "visionScorePerMinute":     { "source": "challenges.visionScorePerMinute", "benchmark": ">2.0 esperado para support" },
+          "controlWardsPlaced":       { "source": "challenges.controlWardsPlaced", "benchmark": ">4 mínimo, >7 activo" },
+          "stealthWardsPlaced":       { "source": "challenges.stealthWardsPlaced" },
+          "wardsKilled":              { "source": "wardsKilled", "benchmark": ">3 limpieza activa" },
+          "wardTakedowns":            { "source": "challenges.wardTakedowns" },
+          "wardTakedownsBefore20m":   { "source": "challenges.wardTakedownsBefore20M" },
+          "controlWardCoverage":      { "source": "challenges.controlWardTimeCoverageInRiverOrEnemyHalf", "format": "percent", "benchmark": ">0.50 visión constante" },
+          "visionScoreAdvantage":     { "source": "challenges.visionScoreAdvantageLaneOpponent" }
+        },
+        "peel_and_engage": {
+          "saveAllyFromDeath":        { "source": "challenges.saveAllyFromDeath", "benchmark": ">0 clave en support de peel" },
+          "wardsGuarded":             { "source": "challenges.wardsGuarded", "note": "Aliados protegidos por wards tuyas" },
+          "enemyImmobilizations":     { "source": "challenges.enemyChampionImmobilizations", "benchmark": ">20 mucho CC aplicado" },
+          "totalTimeCCDealt":         { "source": "totalTimeCCDealt", "benchmark": ">200 segundos de CC total" },
+          "timeCCingOthers":          { "source": "timeCCingOthers" },
+          "knockEnemyIntoTeam":       { "source": "challenges.knockEnemyIntoTeamAndKill" }
+        },
+        "utility_and_healing": {
+          "totalHealsOnTeammates":    { "source": "totalHealsOnTeammates" },
+          "effectiveHealAndShielding":{ "source": "challenges.effectiveHealAndShielding", "benchmark": ">5000 support heal/shield activo" },
+          "totalDamageShieldedOnTeammates": { "source": "totalDamageShieldedOnTeammates" },
+          "completeSupportQuestInTime": { "source": "challenges.completeSupportQuestInTime", "note": "1 = completó el quest de item support a tiempo" }
+        },
+        "roaming_support": {
+          "killParticipation":        { "source": "challenges.killParticipation", "benchmark": ">0.65 support debe estar en peleas" },
+          "pickKillWithAlly":         { "source": "challenges.pickKillWithAlly" },
+          "takedownsFirstXMinutes":   { "source": "challenges.takedownsFirstXMinutes" },
+          "killsNearEnemyTurret":     { "source": "challenges.killsNearEnemyTurret" }
+        },
+        "laning_support": {
+          "firstBloodAssist":         { "source": "firstBloodAssist" },
+          "firstTowerAssist":         { "source": "firstTowerAssist" }
+        }
+      },
+      "llm_prompt_fields": [
+        "championName", "win", "kills", "deaths", "assists", "kda",
+        "visionScore", "visionScorePerMinute", "controlWardsPlaced", "wardsKilled",
+        "controlWardTimeCoverageInRiverOrEnemyHalf", "wardTakedownsBefore20M",
+        "totalHealsOnTeammates", "effectiveHealAndShielding", "totalDamageShieldedOnTeammates",
+        "enemyChampionImmobilizations", "totalTimeCCDealt", "saveAllyFromDeath",
+        "killParticipation", "pickKillWithAlly", "completeSupportQuestInTime",
+        "goldEarned", "totalTimeSpentDead", "items"
+      ]
+    },
+
+    "coach": {
+      "coaching_focus": "Proporciona entrenamiento general: ejercicios concretos, áreas a mejorar y quick wins.",
+      "description": "Vista de equipo completo. Agrega métricas de los 5 jugadores para análisis macro.",
+      "team_aggregates": {
+        "total_kills":        { "calc": "sum(kills) por teamId" },
+        "total_deaths":       { "calc": "sum(deaths) por teamId" },
+        "avg_vision_score":   { "calc": "avg(visionScore) por teamId", "benchmark": ">40 promedio saludable" },
+        "total_controlWards": { "calc": "sum(controlWardsPlaced) por teamId", "benchmark": ">10 en equipo" },
+        "avg_killParticipation": { "calc": "avg(killParticipation) por teamId" },
+        "total_cs_10min":     { "calc": "sum(laneMinionsFirst10Minutes) de laners" },
+        "total_damageToChampions": { "calc": "sum(totalDamageDealtToChampions) por teamId" },
+        "total_timeSpentDead": { "calc": "sum(totalTimeSpentDead) por teamId", "note": "Tiempo colectivo muerto = oportunidades perdidas" },
+        "total_turretPlates": { "calc": "sum(turretPlatesTaken) por teamId" }
+      },
+      "draft_analysis": {
+        "bans_team100":   { "source": "info.teams[0].bans" },
+        "bans_team200":   { "source": "info.teams[1].bans" },
+        "composition":    { "note": "Lista de championName + teamPosition para análisis de composición" }
+      },
+      "macro_indicators": {
+        "first_baron":    { "source": "info.teams[].objectives.baron.first" },
+        "first_dragon":   { "source": "info.teams[].objectives.dragon.first" },
+        "first_tower":    { "source": "info.teams[].objectives.tower.first" },
+        "dragon_diff":    { "calc": "dragon_kills equipo ganador - perdedor" },
+        "tower_diff":     { "calc": "tower_kills equipo ganador - perdedor" },
+        "gold_diff":      { "calc": "sum(goldEarned) equipo ganador - perdedor" }
+      },
+      "llm_prompt_fields": [
+        "Por jugador: riotId, championName, teamPosition, win, kills, deaths, assists,",
+        "goldPerMinute, laneMinionsFirst10Minutes, killParticipation, damagePerMinute,",
+        "visionScorePerMinute, controlWardsPlaced, totalTimeSpentDead.",
+        "A nivel equipo: objetivos, bans, diferencias de oro/torretas/dragones."
+      ]
+    }
+  },
+
+  "prompt_template": {
+    "description": "Plantilla base para construir el prompt de LLaMA 3.1:8b",
+    "structure": "Eres un coach experto de League of Legends. Analiza la siguiente partida y proporciona feedback específico y accionable para el jugador.\n\n=== DATOS DEL JUGADOR ===\nNombre: {riotId}\nCampeón: {championName}\nRol: {teamPosition}\nResultado: {win}\n\n=== ESTADÍSTICAS CLAVE ===\n{campos_del_rol}\n\n=== CONTEXTO DE EQUIPO ===\n{team_objectives}\n\n=== FOCO DE COACHING PARA {teamPosition} ===\n{coaching_focus}\n\n=== INSTRUCCIONES ===\nIdentifica exactamente 3 puntos débiles con datos concretos.\nPara cada punto débil da 1 ejercicio o acción específica para mejorar.\nSé directo, usa números, evita generalidades.",
+    "notes": [
+      "Mantener el prompt bajo 800 tokens para LLaMA 3.1:8b (ventana 8k pero el modelo rinde mejor con contextos cortos)",
+      "Resolver IDs de items a nombres usando Riot Data Dragon antes de incluirlos",
+      "Convertir gameDuration a minutos para el cálculo de métricas por minuto",
+      "Normalizar killParticipation y teamDamagePercentage como porcentajes legibles"
+    ]
+  }
+}

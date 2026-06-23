@@ -22,7 +22,7 @@ def _get_player_matches_docs(db, scan_limit: int):
         return list(col.values())[:scan_limit]
 
 
-def retrieve_for_category(category_id: str, role: Optional[str], db, limit: int = 5) -> List[str]:
+def retrieve_for_category(category_id: str, role: Optional[str], db, limit: int = 5, last_match: bool = False) -> List[str]:
     logger = get_logger()
     out: List[str] = []
     try:
@@ -121,6 +121,13 @@ def retrieve_for_category(category_id: str, role: Optional[str], db, limit: int 
 
                 if len(out) >= limit:
                     break
+
+            logger.info("retrieve_for_category: scanned %d docs from player_matches; found %d passages for category=%s", pm_scanned if 'pm_scanned' in locals() else 0, len(out), category_id)
+
+        # If last_match requested, attempt to return only the most recent match passages
+        if last_match and out:
+            # reduce to only the most recent entries (they were scanned newest-first)
+            return [str(x) for x in out[:min(limit, len(out))]]
 
             logger.info("retrieve_for_category: scanned %d docs from player_matches; found %d passages for category=%s", pm_scanned if 'pm_scanned' in locals() else 0, len(out), category_id)
 
