@@ -64,6 +64,10 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
     matches_fetched = len(match_ids)
 
     for mid in match_ids:
+        # Check if this match already exists in DB to avoid redundant work
+        if repo.match_exists(mid):
+            continue
+
         limiter.acquire()
         try:
             m = client.get_match_by_id(mid, region_rep=region_rep)

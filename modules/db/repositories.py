@@ -12,14 +12,32 @@ class MatchesRepository:
         except Exception:
             pass
 
-    def upsert_match(self, match_json: dict):
+    def match_exists(self, match_id: str) -> bool:
+        """Return True if a document with the given metadata.matchId exists."""
+        return self.col.count_documents({"metadata.matchId": match_id}, limit=1) > 0
+
+    def upsert_match(self, match_json: dict, skip_if_exists: bool = False) -> bool:
+        """Insert or update a match document.
+
+        Args:
+            match_json: the full match JSON from Riot API
+            skip_if_exists: if True, skip the upsert when the match already exists
+
+        Returns:
+            True if the match was inserted/updated, False if it was skipped.
+        """
         match_id = match_json.get("metadata", {}).get("matchId")
         if not match_id:
             # try legacy key
             match_id = match_json.get("gameId")
         if not match_id:
             raise ValueError("match JSON missing match id")
+
+        if skip_if_exists and self.match_exists(match_id):
+            return False
+
         self.col.update_one({"metadata.matchId": match_id}, {"$set": match_json}, upsert=True)
+        return True
 
     def upsert_parsed_player_match(self, player_parsed: Dict[str, Any]):
         """Upsert the parsed player metrics into a separate collection.
