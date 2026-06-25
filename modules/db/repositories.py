@@ -2,19 +2,36 @@ from pymongo.collection import Collection
 from datetime import datetime
 from typing import Dict, Any
 
+from modules.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class MatchesRepository:
     def __init__(self, collection: Collection):
         self.col = collection
+        self._player_matches = None
         # ensure unique index on metadata.matchId if available
         try:
             self.col.create_index([("metadata.matchId", 1)], unique=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to create index on matches: %s", exc)
 
     def match_exists(self, match_id: str) -> bool:
         """Return True if a document with the given metadata.matchId exists."""
         return self.col.count_documents({"metadata.matchId": match_id}, limit=1) > 0
+
+    def player_match_exists(self, match_id: str, puuid: str) -> bool:
+        """Return True if a player_match document exists for the given (match_id, puuid)."""
+        pm = self._get_player_matches_col()
+        return pm.count_documents({"matchId": match_id, "player_puuid": puuid}, limit=1) > 0
+
+    def _get_player_matches_col(self):
+        """Lazy-load and cache the player_matches collection reference."""
+        if self._player_matches is None:
+            db = self.col.database
+            self._player_matches = db.get_collection("player_matches")
+        return self._player_matches
 
     def upsert_match(self, match_json: dict, skip_if_exists: bool = False) -> bool:
         """Insert or update a match document.
@@ -52,21 +69,13 @@ class MatchesRepository:
         if not player_puuid or not match_id:
             raise ValueError("player_parsed must include player_puuid and matchId")
 
-        db = None
-        try:
-            db = self.col.database
-        except Exception:
-            # Fallback: if collection doesn't expose database, raise
-            raise RuntimeError("Unable to access database from collection")
-
-        pm_col = db.get_collection("player_matches")
+        pm_col = self._get_player_matches_col()
 
         # Ensure unique index on (player_puuid, matchId)
         try:
             pm_col.create_index([("player_puuid", 1), ("matchId", 1)], unique=True)
-        except Exception:
-            # best-effort index creation; ignore to remain idempotent
-            pass
+        except Exception as exc:
+            logger.warning("Failed to create index on player_matches: %s", exc)
 
         doc = {
             "player_puuid": player_puuid,
