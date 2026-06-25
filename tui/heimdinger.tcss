@@ -1,0 +1,288 @@
+/* heimdinger.tcss — LoL HUD aesthetic */
+
+Screen {
+    background: #0A0E1A;
+    color: #E8E8E8;
+}
+
+Header {
+    background: #111827;
+    color: #C89B3C;
+    text-style: bold;
+}
+
+Footer {
+    background: #111827;
+    color: #8892A4;
+}
+
+/* ════════════════════════
+   Sidebar
+   ════════════════════════ */
+
+#sidebar {
+    background: #111827;
+    border-right: solid #2A3447;
+    width: 20;
+    height: 100%;
+    padding: 0 0;
+}
+
+.nav-title {
+    color: #C89B3C;
+    text-style: bold;
+    padding: 1 1;
+    background: #1C2333;
+    border-bottom: solid #2A3447;
+}
+
+.nav-item {
+    padding: 0 1;
+    color: #8892A4;
+}
+
+.nav-item:hover,
+.nav-item:focus {
+    color: #C89B3C;
+    background: #1C2333;
+}
+
+.nav-item.active {
+    color: #0BC4C4;
+    border-left: solid #0BC4C4;
+    background: #1C2333;
+}
+
+.nav-section {
+    color: #8892A4;
+    text-style: bold;
+    padding: 0 1;
+    margin: 0 0;
+}
+
+.nav-config {
+    padding: 0 2;
+    color: #8892A4;
+}
+
+#sidebar-spacer {
+    height: 1fr;
+    min-height: 1;
+}
+
+/* ════════════════════════
+   Content area
+   ════════════════════════ */
+
+#main-content {
+    height: 100%;
+    padding: 0 2;
+}
+
+#content-header {
+    height: 3;
+    align-vertical: middle;
+}
+
+.content-title {
+    color: #C89B3C;
+    text-style: bold;
+    text-style: underline;
+}
+
+.patch {
+    color: #8892A4;
+    margin: 0 0 0 2;
+}
+
+.section-label {
+    color: #8892A4;
+    text-style: bold;
+    padding: 0 0;
+    margin: 1 0 0 0;
+}
+
+/* ════════════════════════
+   Stat cards row
+   ════════════════════════ */
+
+#stat-cards {
+    height: 7;
+    align-horizontal: center;
+    margin: 0 0;
+}
+
+StatCard {
+    background: #1C2333;
+    border: solid #2A3447;
+    min-width: 16;
+    margin: 0 1 0 0;
+}
+
+/* ════════════════════════
+   DataTable
+   ════════════════════════ */
+
+DataTable {
+    background: #111827;
+    height: 1fr;
+    min-height: 5;
+}
+
+DataTable > .datatable--header {
+    background: #1C2333;
+    color: #C89B3C;
+}
+
+DataTable > .datatable--cursor {
+    background: #2A3447;
+}
+
+DataTable > .datatable--odd-row {
+    background: #0F1524;
+}
+
+DataTable > .datatable--even-row {
+    background: #111827;
+}
+
+.win  { color: #0BC4C4; }
+.loss { color: #E84057; }
+.gold { color: #C89B3C; }
+.dim  { color: #8892A4; }
+
+/* ════════════════════════
+   Chart
+   ════════════════════════ */
+
+.chart-widget {
+    background: #111827;
+    border: solid #2A3447;
+    padding: 1;
+    height: 10;
+    min-height: 6;
+}
+
+/* ════════════════════════
+   Buttons
+   ════════════════════════ */
+
+Button.-primary {
+    background: #C89B3C;
+    color: #0A0E1A;
+    border: none;
+}
+
+Button.-primary:hover {
+    background: #E8C060;
+}
+
+Button.-warning {
+    background: #E84057;
+    color: #E8E8E8;
+    border: none;
+}
+
+Button.-default {
+    background: #2A3447;
+    color: #8892A4;
+    border: none;
+}
+
+/* ════════════════════════
+   Inputs
+   ════════════════════════ */
+
+Input {
+    border: solid #2A3447;
+    background: #1C2333;
+    color: #E8E8E8;
+}
+
+Input:focus {
+    border: solid #C89B3C;
+}
+
+Select {
+    background: #1C2333;
+    border: solid #2A3447;
+    color: #E8E8E8;
+}
+
+Select:focus {
+    border: solid #C89B3C;
+}
+
+/* ════════════════════════
+   Log / RichLog
+   ════════════════════════ */
+
+RichLog {
+    background: #0A0E1A;
+    border: solid #2A3447;
+    padding: 0 1;
+}
+
+/* ════════════════════════
+   Coach bubbles
+   ════════════════════════ */
+
+.coach-bubble-user {
+    background: #1C2333;
+    border-left: solid #0BC4C4;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.coach-bubble-ai {
+    background: #111827;
+    border-left: solid #C89B3C;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+/* ════════════════════════
+   Progress
+   ════════════════════════ */
+
+ProgressBar > .bar--bar {
+    color: #C89B3C;
+}
+
+ProgressBar > .bar--complete {
+    color: #0BC4C4;
+}
+
+/* ════════════════════════
+   Generic containers
+   ════════════════════════ */
+
+.content-panel {
+    background: #111827;
+    border: solid #2A3447;
+    padding: 1;
+}
+
+/* ════════════════════════
+   Labels & text helpers
+   ════════════════════════ */
+
+Label {
+    color: #8892A4;
+}
+
+Static.label {
+    color: #8892A4;
+}
+
+/* ════════════════════════
+   Scrollbar
+   ════════════════════════ */
+
+Scrollbar {
+    color: #2A3447;
+}
+
+Scrollbar:hover {
+    color: #C89B3C;
+}

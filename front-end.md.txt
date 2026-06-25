@@ -1,0 +1,537 @@
+# Heimdinger TUI — Especificación de Implementación
+
+> Terminal User Interface para la app de coaching de League of Legends.
+> Stack: **Textual** (Python) + **Rich** (ya instalado) + **Plotext** (gráficos ASCII).
+
+---
+
+## 1. Stack tecnológico
+
+| Librería | Versión mínima | Rol |
+|---|---|---|
+| `textual` | ≥ 0.60 | Framework TUI — widgets, layouts, CSS |
+| `rich` | ≥ 13.0 | Ya en el proyecto. Tablas, colores, paneles |
+| `plotext` | ≥ 5.2 | Gráficos ASCII (barras, líneas, scatter) en terminal |
+| `python-dotenv` | ya instalado | Config |
+
+```bash
+# Añadir al pyproject.toml o requirements.txt
+pip install textual plotext
+```
+
+---
+
+## 2. Paleta visual y estética
+
+La TUI debe evocar el HUD de LoL: interfaz de combate, no de oficina.
+
+```
+FONDO PRIMARIO     #0A0E1A   (azul noche profundo)
+FONDO SECUNDARIO   #111827   (paneles y sidebar)
+FONDO ELEVADO      #1C2333   (tarjetas, modales)
+ACENTO GOLD        #C89B3C   (color del oro de LoL — títulos, bordes activos)
+ACENTO TEAL        #0BC4C4   (métricas positivas, highlights)
+PELIGRO            #E84057   (muertes, métricas bajo benchmark)
+TEXTO PRIMARIO     #E8E8E8
+TEXTO SECUNDARIO   #8892A4
+BORDE              #2A3447
+```
+
+Fuente en terminal: `JetBrains Mono` o `Fira Code` — la TUI hereda la fuente de la terminal del usuario, pero indicar en el README que se recomienda una Nerd Font para los iconos Unicode.
+
+---
+
+## 3. Estructura de archivos
+
+```
+heimdinger/
+├── tui/
+│   ├── __init__.py
+│   ├── app.py                  # Entrypoint Textual — HeimdingertApp
+│   ├── heimdinger.tcss         # CSS de Textual
+│   ├── screens/
+│   │   ├── dashboard.py        # Pantalla principal — overview del equipo
+│   │   ├── ingest_screen.py    # Formulario de ingestión
+│   │   ├── player_screen.py    # Detalle de jugador + gráficos
+│   │   ├── coach_screen.py     # Chat interactivo con LLaMA
+│   │   └── pipeline_screen.py  # Pipeline completo con log en tiempo real
+│   ├── widgets/
+│   │   ├── stat_card.py        # Tarjeta de métrica individual
+│   │   ├── kda_bar.py          # Barra KDA visual con colores
+│   │   ├── role_badge.py       # Badge de rol con icono
+│   │   ├── match_row.py        # Fila de historial de partida
+│   │   ├── chart_widget.py     # Wrapper de plotext en Textual
+│   │   └── coach_bubble.py     # Burbuja de respuesta del coach IA
+│   └── utils/
+│       ├── formatters.py       # Formateo de datos (GPM, KDA, duración)
+│       └── benchmarks.py       # Comparación vs benchmarks por rol
+└── scripts/
+    └── main.py                 # (existente) — mantener como fallback CLI
+```
+
+---
+
+## 4. Pantallas
+
+### 4.1 Dashboard — Pantalla principal
+
+**Layout:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  ⚔  HEIMDINGER          [F1 Ayuda]  [F5 Refrescar]  [Q] │
+├──────────┬──────────────────────────────────────────────┤
+│          │  RESUMEN DEL EQUIPO          patch 14.x      │
+│ SIDEBAR  ├──────────┬──────────┬──────────┬────────────┤
+│          │ W/L RATE │  AVG KDA │  AVG GPM │ AVG VISIÓN │
+│ ▶ Dashboard│  68%   │   4.2    │  487     │  38        │
+│   Ingestar│        ├──────────────────────────────────┤
+│   Jugador │        │  EQUIPO — últimas N partidas       │
+│   Equipo  │        │                                    │
+│   Coach   │        │  Nick        Rol  KDA  GPM  WR     │
+│   Pipeline│        │  ────────────────────────────────  │
+│           │        │  TR Termi…   Top  5.1  501  70%    │
+│ ──────── │        │  Nunu123     JGL  4.8  468  65%    │
+│ CONFIG    │        │  Faker_EUW   Mid  6.2  534  72%    │
+│ .env ✓    │        │  ADC_Guy     Bot  3.9  499  60%    │
+│ Ollama ✓  │        │  Sup_Master  Sup  –    312  68%    │
+│ Riot ✓    │        ├──────────────────────────────────┤
+│           │        │  GRÁFICO: Win Rate últimas 10p     │
+│           │        │  [plotext bar chart]               │
+└──────────┴─────────┴──────────────────────────────────┘
+```
+
+**Widgets usados:**
+- `Header` de Textual con nombre y atajos de teclado
+- `Sidebar` con navegación por teclas (↑↓ + Enter)
+- `DataTable` de Textual para la tabla del equipo — clickeable por fila
+- `StatCard` × 4 para las métricas resumen
+- `ChartWidget` con `plotext.bar()` para la win rate
+
+---
+
+### 4.2 Ingestar jugador
+
+**Layout:**
+```
+┌──────────────────────────────────────┐
+│  INGESTAR JUGADOR                    │
+├──────────────────────────────────────┤
+│  Riot ID     [ TR Terminator#1998 ]  │
+│  Partidas    [ 5 ────────────────]   │
+│  Región      [ europe ▼ ]            │
+│  Región 2    [ europe ▼ ]            │
+│                                      │
+│  [ ▶ INGESTAR ]    [ ✕ Cancelar ]   │
+├──────────────────────────────────────┤
+│  LOG                                 │
+│  > Buscando PUUID...                 │
+│  > ✓ PUUID encontrado                │
+│  > Fetching match TFR_123... ✓       │
+│  > Fetching match TFR_124... ✓       │
+│  > Guardando en DB... ✓              │
+│  > [██████████] 5/5 partidas         │
+└──────────────────────────────────────┘
+```
+
+**Implementación clave:**
+```python
+# ingest_screen.py
+class IngestScreen(Screen):
+    def compose(self):
+        yield Input(placeholder="TR Terminator#1998", id="riotid")
+        yield Input(value="5", id="count", type="integer")
+        yield Select(options=[("europe","europe"),("americas","americas")], id="region")
+        yield Button("▶ INGESTAR", variant="primary", id="ingest_btn")
+        yield RichLog(id="log", highlight=True, markup=True)
+
+    @on(Button.Pressed, "#ingest_btn")
+    async def run_ingest(self):
+        log = self.query_one("#log")
+        # Correr ingest_player en worker thread para no bloquear la TUI
+        await asyncio.to_thread(ingest_player, riotid=..., count=...)
+```
+
+> **Patrón clave:** usar `asyncio.to_thread()` o `self.run_worker()` de Textual para todas las llamadas a la API de Riot y a Ollama. La TUI nunca debe bloquearse.
+
+---
+
+### 4.3 Detalle de jugador
+
+Se accede haciendo clic en una fila del Dashboard o seleccionando un jugador del sidebar.
+
+**Layout (dos columnas):**
+```
+┌──────────────────────────────────────────────────────────┐
+│ ◀ Volver    TR Terminator  •  TOP  •  Gnar              │
+├─────────────────────────┬────────────────────────────────┤
+│  ÚLTIMAS 5 PARTIDAS     │  MÉTRICAS AGREGADAS            │
+│                         │                                │
+│  ✓ Gnar   5/2/8  501gpm │  KDA medio        4.8         │
+│  ✗ Malph  2/7/3  389gpm │  GPM medio        487  ████▌  │
+│  ✓ Gnar   8/1/11 534gpm │  CS@10 medio       72  ████   │
+│  ✓ Darius 10/3/6 521gpm │  Vision/min       0.8  ██▌    │
+│  ✗ Gnar   3/9/2  412gpm │  Kill Participation 58% ████  │
+│                         │                                │
+├─────────────────────────┤  GRÁFICO: GPM por partida     │
+│  TENDENCIA KDA          │                                │
+│  [plotext line chart]   │  600 ┤          ╭─╮           │
+│  6 ╮     ╭─╮            │  500 ┤   ╭──╮  ╯  ╰──        │
+│  4 ┤ ╭─╯ ╯  ╰──        │  400 ┤╭──╯   ╰─               │
+│  2 ┤╯                   │      └──────────────── t      │
+│    └──────────── t      │                                │
+├─────────────────────────┴────────────────────────────────┤
+│  FEEDBACK IA  [Generar con LLaMA ▶]                      │
+│                                                          │
+│  🤖 Tu CS promedio a los 10min (72) está por debajo del  │
+│     benchmark para Top (>80). Practica freezing en modo  │
+│     práctica personalizada durante 15 min antes de cada  │
+│     sesión de ranked.                                    │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Gráficos con Plotext:**
+```python
+# chart_widget.py
+import plotext as plt
+from textual.widget import Widget
+
+class PlotextChart(Widget):
+    def __init__(self, x_data, y_data, title="", color="cyan"):
+        super().__init__()
+        self.x_data = x_data
+        self.y_data = y_data
+        self.title = title
+        self.color = color
+
+    def render(self):
+        plt.clf()
+        plt.plot(self.x_data, self.y_data, color=self.color)
+        plt.title(self.title)
+        plt.plotsize(self.size.width, self.size.height)
+        return plt.build()  # devuelve string ASCII
+```
+
+---
+
+### 4.4 Ask the Coach — Chat interactivo
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  🤖 ASK THE COACH     Modelo: llama3.1:8b   Rol: Top    │
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ 👤 ¿Por qué pierdo tanto en línea contra Darius? │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                          │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ 🤖 Basándome en tus últimas 5 partidas contra    │    │
+│  │    Darius (KDA 1.8, CS@10 avg 61):               │    │
+│  │                                                   │    │
+│  │    1. Tu CS a los 10min cae un 18% vs tus        │    │
+│  │       partidas sin Darius. Estás saliendo de      │    │
+│  │       posición para farmear bajo torre.           │    │
+│  │    2. Mueres en trade corto — Darius gana todos   │    │
+│  │       los trades de 1-3 habilidades antes de lvl6 │    │
+│  │    3. Ejercicio: practica el "kite back" en custom│    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                          │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ 👤 [escribiendo...]                              │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                          │
+├──────────────────────────────────────────────────────────┤
+│  [ Pregunta al coach...                    ] [▶ Enviar] │
+│  Jugador: TR Terminator  │ Última partida: OFF │ [⚙ Config]│
+└──────────────────────────────────────────────────────────┘
+```
+
+**Implementación streaming:**
+```python
+# coach_screen.py
+class CoachScreen(Screen):
+    async def send_to_llm(self, question: str):
+        bubble = CoachBubble(streaming=True)
+        self.query_one("#chat_log").mount(bubble)
+
+        # Ollama tiene API de streaming — usar httpx async
+        async with httpx.AsyncClient() as client:
+            async with client.stream("POST", "http://localhost:11434/api/generate",
+                json={"model": self.model, "prompt": self._build_prompt(question)}
+            ) as response:
+                async for chunk in response.aiter_text():
+                    data = json.loads(chunk)
+                    bubble.append_text(data.get("response", ""))
+                    await asyncio.sleep(0)  # yield al event loop
+
+        bubble.streaming = False
+```
+
+---
+
+### 4.5 Pipeline completo
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  PIPELINE COMPLETO                                       │
+├──────────────────┬───────────────────────────────────────┤
+│  CONFIGURACIÓN   │  PROGRESO                             │
+│                  │                                       │
+│  Team file:      │  TR Terminator (Top)                  │
+│  [config/team ▼] │  ├─ Ingest     [██████████] ✓ 5/5   │
+│                  │  ├─ Report     [██████████] ✓         │
+│  Partidas: [5]   │  └─ LLM        [████░░░░░░] 2/5      │
+│                  │                                       │
+│  LLM calls: [3]  │  Faker_EUW (Mid)                      │
+│                  │  ├─ Ingest     [████████░░] 4/5       │
+│  Modelo:         │  ├─ Report     [░░░░░░░░░░] pendiente │
+│  [llama3.1:8b▼]  │  └─ LLM        [░░░░░░░░░░] pendiente │
+│                  │                                       │
+│  [▶ EJECUTAR]    │  ─────────────────────────────────    │
+│  [⏸ Pausar ]    │  LOG                                  │
+│  [✕ Abortar ]    │  > [14:32:01] ✓ PUUID TR Terminator  │
+│                  │  > [14:32:03] ✓ Match EUW_123 saved   │
+│                  │  > [14:32:11] ⚡ LLaMA generando...  │
+└──────────────────┴───────────────────────────────────────┘
+```
+
+---
+
+## 5. Gráficos disponibles (Plotext)
+
+Todos se renderizan como strings ASCII dentro de widgets de Textual.
+
+| Gráfico | Widget | Datos de la API | Cuándo mostrarlo |
+|---|---|---|---|
+| **KDA trend** | `PlotextChart(type="line")` | `challenges.kda` × partida | Pantalla jugador |
+| **GPM por partida** | `PlotextChart(type="line")` | `challenges.goldPerMinute` | Pantalla jugador |
+| **Win rate equipo** | `PlotextChart(type="bar")` | `win` agregado × jugador | Dashboard |
+| **CS@10 vs benchmark** | `PlotextChart(type="bar")` | `laneMinionsFirst10Minutes` | Pantalla jugador (laners) |
+| **Daño % del equipo** | `PlotextChart(type="bar")` | `challenges.teamDamagePercentage` | Pantalla jugador |
+| **Vision score/min** | `PlotextChart(type="scatter")` | `challenges.visionScorePerMinute` | Support / Jungle |
+| **Distribución muertes** | `PlotextChart(type="bar")` | `totalTimeSpentDead` | Pantalla jugador |
+| **Kill Participation** | `PlotextChart(type="bar")` | `challenges.killParticipation` | Dashboard |
+
+**Ejemplo de gráfico de barras múltiple (comparativa de equipo):**
+```python
+def render_team_kda_chart(players: list[dict]) -> str:
+    plt.clf()
+    names = [p["riotId"][:8] for p in players]
+    kdas  = [p["kda"] for p in players]
+    plt.bar(names, kdas, color="gold")
+    plt.title("KDA promedio por jugador")
+    plt.ylim(0, 10)
+    plt.plotsize(60, 15)
+    return plt.build()
+```
+
+---
+
+## 6. Navegación por teclado
+
+| Tecla | Acción |
+|---|---|
+| `Q` / `Ctrl+C` | Salir |
+| `F1` | Ayuda / atajos |
+| `F5` | Refrescar datos |
+| `↑ ↓` | Navegar sidebar / tabla |
+| `Enter` | Seleccionar item |
+| `Esc` | Volver / cerrar modal |
+| `Tab` | Navegar entre campos de formulario |
+| `1` `2` `3` `4` | Acceso directo a cada pantalla |
+| `Ctrl+L` | Limpiar log |
+| `Ctrl+P` | Cambiar jugador activo |
+
+---
+
+## 7. CSS de Textual (`heimdinger.tcss`)
+
+```css
+/* heimdinger.tcss */
+
+Screen {
+    background: #0A0E1A;
+    color: #E8E8E8;
+}
+
+Header {
+    background: #111827;
+    color: #C89B3C;
+    text-style: bold;
+}
+
+Sidebar {
+    background: #111827;
+    border-right: solid #2A3447;
+    width: 18;
+}
+
+.nav-item {
+    padding: 0 2;
+    color: #8892A4;
+}
+
+.nav-item:hover, .nav-item:focus {
+    color: #C89B3C;
+    background: #1C2333;
+}
+
+.nav-item.active {
+    color: #0BC4C4;
+    border-left: solid #0BC4C4;
+}
+
+StatCard {
+    background: #1C2333;
+    border: solid #2A3447;
+    padding: 1 2;
+    height: 5;
+}
+
+StatCard .value {
+    color: #C89B3C;
+    text-style: bold;
+    font-size: 2;   /* Textual no tiene font-size pero sí markup de Rich */
+}
+
+StatCard .label {
+    color: #8892A4;
+}
+
+DataTable {
+    background: #111827;
+}
+
+DataTable > .datatable--header {
+    background: #1C2333;
+    color: #C89B3C;
+}
+
+DataTable > .datatable--cursor {
+    background: #2A3447;
+}
+
+.win  { color: #0BC4C4; }
+.loss { color: #E84057; }
+.gold { color: #C89B3C; }
+.dim  { color: #8892A4; }
+
+Button.-primary {
+    background: #C89B3C;
+    color: #0A0E1A;
+    border: none;
+}
+
+Button.-primary:hover {
+    background: #E8C060;
+}
+
+Input {
+    border: solid #2A3447;
+    background: #1C2333;
+}
+
+Input:focus {
+    border: solid #C89B3C;
+}
+
+RichLog {
+    background: #0A0E1A;
+    border: solid #2A3447;
+    padding: 0 1;
+}
+
+PlotextChart {
+    background: #111827;
+    border: solid #2A3447;
+    padding: 1;
+}
+
+.coach-bubble-user {
+    background: #1C2333;
+    border-left: solid #0BC4C4;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+.coach-bubble-ai {
+    background: #111827;
+    border-left: solid #C89B3C;
+    margin: 1 0;
+    padding: 1 2;
+}
+
+ProgressBar > .bar--bar {
+    color: #C89B3C;
+}
+
+ProgressBar > .bar--complete {
+    color: #0BC4C4;
+}
+```
+
+---
+
+## 8. Entrypoint
+
+```python
+# tui/app.py
+from textual.app import App, ComposeResult
+from textual.widgets import Header, Footer
+from tui.screens.dashboard import DashboardScreen
+
+class HeimdingertApp(App):
+    CSS_PATH = "heimdinger.tcss"
+    TITLE = "Heimdinger — LoL Coaching"
+    BINDINGS = [
+        ("q", "quit", "Salir"),
+        ("f1", "help", "Ayuda"),
+        ("f5", "refresh", "Refrescar"),
+        ("1", "goto_dashboard", "Dashboard"),
+        ("2", "goto_ingest", "Ingestar"),
+        ("3", "goto_coach", "Coach"),
+        ("4", "goto_pipeline", "Pipeline"),
+    ]
+
+    def on_mount(self):
+        self.push_screen(DashboardScreen())
+
+if __name__ == "__main__":
+    HeimdingertApp().run()
+```
+
+Lanzar con:
+```bash
+python -m tui.app
+# o
+textual run tui/app.py
+```
+
+---
+
+## 9. Integración con el código existente
+
+El `main.py` actual sigue siendo válido como fallback CLI. La TUI llama a los mismos módulos internos:
+
+| Función en `main.py` | Módulo reutilizado en TUI |
+|---|---|
+| `_run_ingest_one()` | `modules.ingest.lib.ingest_player` |
+| `_run_ingest_team()` | `modules.config_manager.get_team` + `ingest_player` |
+| `_run_coach_interactive()` | `scripts.ask_coach.ask_coach` (o llamada directa a Ollama) |
+| `_run_pipeline()` | `ReportBuilder`, `LLMAdvisor`, `ingest_player` |
+
+> Toda llamada bloqueante (Riot API, Ollama, DB) debe envolverse en `asyncio.to_thread()` o `self.run_worker()` para que la TUI no se congele.
+
+---
+
+## 10. Orden de implementación recomendado
+
+1. **Setup** — instalar Textual + Plotext, crear estructura de carpetas `tui/`
+2. **`app.py` + `heimdinger.tcss`** — esqueleto con sidebar y navegación
+3. **`dashboard.py`** — DataTable del equipo + StatCards (sin gráficos aún)
+4. **`ingest_screen.py`** — formulario + RichLog + worker async
+5. **`chart_widget.py`** — wrapper Plotext genérico
+6. **`player_screen.py`** — detalle con gráficos de línea/barra
+7. **`coach_screen.py`** — chat con streaming de Ollama
+8. **`pipeline_screen.py`** — progreso en tiempo real con workers
+9. **Pulido** — colores, atajos de teclado, mensajes de error, modo ayuda

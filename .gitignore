@@ -5,3 +5,4 @@ venv/
 env/
 reports/*
 logs/*
+tui/logs/
