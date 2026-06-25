@@ -33,7 +33,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, IntPrompt, Confirm
 from rich.table import Table
-from rich import print as rprint
 
 from modules.logger import get_logger
 
@@ -226,10 +225,8 @@ def _run_pipeline():
             continue
         console.print(f" [green]✓[/green] PUUID={puuid}")
 
-        if not puuid:
-            continue
-
         # 2. Reports
+        report = None
         if per_match:
             try:
                 col = db.get_collection("player_matches")
@@ -243,18 +240,25 @@ def _run_pipeline():
                 console.print(f"  [{mi}/{len(matches)}] Reporte por partida ✓")
         else:
             report = rb.build_player_report(puuid, db)
-            console.print(
-                f"  Reporte agregado: {report.get('games_analyzed')} partidas, "
-                f"campeón más usado: {report.get('champion')}"
-            )
+            if report.get("status") in ("empty", "error"):
+                console.print(f"  [yellow]⚠ Reporte no disponible — verificar manualmente ({report.get('detail')})[/yellow]")
+            else:
+                console.print(
+                    f"  Reporte agregado: {report.get('games_analyzed')} partidas, "
+                    f"campeón más usado: {report.get('champion')}"
+                )
 
-        # 3. LLM (opcional)
+        # 3. LLM (opcional) — reuse cached report
         if advisor and max_llm > 0:
             try:
-                report_data = rb.build_player_report(puuid, db)
-                advice = advisor.advise(report_data, role=role or "coach", model=model)
-                if advice:
-                    console.print(f"  [green]LLM:[/green] {advice.get('summary', '')[:200]}")
+                if report is None:
+                    report = rb.build_player_report(puuid, db)
+                if report.get("status") in ("empty", "error"):
+                    console.print(f"  [yellow]⚠ LLM saltado — reporte no disponible[/yellow]")
+                else:
+                    advice = advisor.advise(report, role=role or "coach", model=model)
+                    if advice:
+                        console.print(f"  [green]LLM:[/green] {advice.get('summary', '')[:200]}")
             except Exception as exc:
                 console.print(f"  [yellow]LLM skip: {exc}[/yellow]")
 
