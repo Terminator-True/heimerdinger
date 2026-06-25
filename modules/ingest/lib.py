@@ -10,7 +10,10 @@ from modules.db.repositories import MatchesRepository
 from modules.riot_api.client import RiotClient
 from modules.riot_api.rate_limiter import TokenBucketLimiter
 from modules.data.match_parser import MatchParser
+from modules.logger import get_logger
 import os
+
+logger = get_logger(__name__)
 
 
 def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_rep: str = "europe", skip_fetch: bool = False) -> Dict[str, Any]:
@@ -24,7 +27,8 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
         skip_fetch: if True, skip API calls and only read existing DB entries
 
     Returns:
-        Summary dict with keys: puuid, matches_fetched, matches_saved
+        Summary dict with keys: puuid, matches_fetched, matches_saved,
+        matches_skipped, matches_parse_errors, matches_fetch_errors
     """
     # Resolve DB and repositories
     db = get_db(os.getenv("MONGO_URI"))
@@ -49,6 +53,9 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
 
     matches_fetched = 0
     matches_saved = 0
+    matches_skipped = 0
+    matches_parse_errors = 0
+    matches_fetch_errors = 0
 
     if skip_fetch:
         # Count existing parsed player matches for this puuid
@@ -57,15 +64,18 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
             existing = pm_col.count_documents({"player_puuid": puuid})
         except Exception:
             existing = 0
-        return {"puuid": puuid, "matches_fetched": 0, "matches_saved": existing}
+        return {"puuid": puuid, "matches_fetched": 0, "matches_saved": existing,
+                "matches_skipped": 0, "matches_parse_errors": 0, "matches_fetch_errors": 0}
 
     # Fetch match ids
     match_ids = client.get_match_ids_by_puuid(puuid, count=count, region_rep=region_rep)
     matches_fetched = len(match_ids)
 
     for mid in match_ids:
-        # Check if this match already exists in DB to avoid redundant work
-        if repo.match_exists(mid):
+        # Check BOTH collections before skipping — a match in `matches` but
+        # not in `player_matches` still needs to be fetched and parsed.
+        if repo.match_exists(mid) and repo.player_match_exists(mid, puuid):
+            matches_skipped += 1
             continue
 
         limiter.acquire()
@@ -92,11 +102,18 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
                     }
                     repo.upsert_parsed_player_match(player_parsed)
                     matches_saved += 1
-            except Exception:
-                # swallow parse errors but continue with other matches
-                pass
-        except Exception:
-            # continue on individual match failures
-            pass
+            except Exception as exc:
+                logger.warning("Failed to parse match %s (puuid %s): %s", mid, puuid, exc)
+                matches_parse_errors += 1
+        except Exception as exc:
+            logger.warning("Failed to fetch match %s: %s", mid, exc)
+            matches_fetch_errors += 1
 
-    return {"puuid": puuid, "matches_fetched": matches_fetched, "matches_saved": matches_saved}
+    return {
+        "puuid": puuid,
+        "matches_fetched": matches_fetched,
+        "matches_saved": matches_saved,
+        "matches_skipped": matches_skipped,
+        "matches_parse_errors": matches_parse_errors,
+        "matches_fetch_errors": matches_fetch_errors,
+    }
