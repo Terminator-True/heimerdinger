@@ -4,6 +4,10 @@ from statistics import mean, median
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from modules.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class ReportBuilder:
     """Build coaching-style reports from parsed player metrics.
@@ -238,123 +242,96 @@ class ReportBuilder:
 
     def build_player_report(self, player_puuid: str, db,
                             pro_reference: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
-        docs = list(self._iter_player_matches(player_puuid, db))
-        games = len(docs)
-        if games == 0:
-            return {
+        try:
+            docs = list(self._iter_player_matches(player_puuid, db))
+            games = len(docs)
+            if games == 0:
+                logger.warning("No matches found for player %s", player_puuid)
+                return {"status": "empty", "player": player_puuid,
+                        "detail": "No player matches found in DB"}
+
+            cs_vals: List[float] = []
+            kda_vals: List[float] = []
+            champions: List[str] = []
+            roles: List[str] = []
+
+            for d in docs:
+                parsed = d.get("parsed_metrics") or d.get("metrics") or {}
+
+                # --- legacy basic stats ---
+                cs = parsed.get("cs_per_min")
+                if cs is not None:
+                    try:
+                        cs_vals.append(float(cs))
+                    except Exception:
+                        pass
+
+                kda = parsed.get("kda")
+                if kda is not None:
+                    try:
+                        kda_vals.append(float(kda))
+                    except Exception:
+                        pass
+
+                champ = d.get("championName") or parsed.get("championName") or parsed.get("champion")
+                if champ:
+                    champions.append(champ)
+
+                role = d.get("role") or parsed.get("role")
+                if role:
+                    roles.append(role)
+
+            # --- build metrics ---
+            metrics: Dict[str, Any] = {}
+
+            if cs_vals:
+                metrics["cs_per_min"] = mean(cs_vals)
+            if kda_vals:
+                metrics["kda"] = mean(kda_vals)
+
+            # accumulate any additional numeric fields from parsed_metrics
+            numeric_acc: Dict[str, List[float]] = {}
+            seen_numeric_keys: set = set()
+            for d in docs:
+                parsed = d.get("parsed_metrics") or d.get("metrics") or {}
+                for pk, pv in parsed.items():
+                    if pk in ("cs_per_min", "kda", "championName", "champion", "role",
+                              "puuid", "summonerName", "timestamp", "matchId"):
+                        continue
+                    self._accumulate_numeric(numeric_acc, pk, pv)
+                    seen_numeric_keys.add(pk)
+            aggregated = self._aggregate(numeric_acc, seen_numeric_keys)
+            metrics.update(aggregated)
+
+            # mode for categoricals
+            champion = Counter(champions).most_common(1)[0][0] if champions else None
+            role = Counter(roles).most_common(1)[0][0] if roles else None
+
+            # deltas
+            deltas: Dict[str, Any] = {}
+            if pro_reference:
+                for k, v in metrics.items():
+                    pref = pro_reference.get(k)
+                    if pref is None:
+                        deltas[k] = None
+                    else:
+                        deltas[k] = round(v - float(pref), 3)
+
+            report = {
                 "player": player_puuid,
-                "role": None,
-                "champion": None,
-                "games_analyzed": 0,
-                "metrics": {},
-                "pro_reference": None,
-                "deltas": {},
+                "role": role,
+                "champion": champion,
+                "games_analyzed": games,
+                "metrics": metrics,
+                "pro_reference": pro_reference if pro_reference is not None else None,
+                "deltas": deltas,
             }
 
-        cs_vals: List[float] = []
-        kda_vals: List[float] = []
-        champions: List[str] = []
-        roles: List[str] = []
-
-        # accumulator for ALL numeric fields extracted from full match participants
-        numeric_acc: Dict[str, List[float]] = {}
-        # keep track of which keys we accumulate so we know what to aggregate
-        seen_numeric_keys: set = set()
-
-        for d in docs:
-            parsed = d.get("parsed_metrics") or d.get("metrics") or {}
-
-            # --- legacy basic stats ---
-            cs = parsed.get("cs_per_min")
-            if cs is not None:
-                try:
-                    cs_vals.append(float(cs))
-                except Exception:
-                    pass
-
-            kda = parsed.get("kda")
-            if kda is not None:
-                try:
-                    kda_vals.append(float(kda))
-                except Exception:
-                    pass
-
-            champ = d.get("championName") or parsed.get("championName") or parsed.get("champion")
-            if champ:
-                champions.append(champ)
-
-            role = d.get("role") or parsed.get("role")
-            if role:
-                roles.append(role)
-
-            # --- rich extraction from full match document ---
-            try:
-                match_id = d.get("matchId") or parsed.get("matchId")
-                if match_id:
-                    full = self._get_full_match(db, match_id)
-                    if full:
-                        rich = self._extract_rich_participant(full, player_puuid)
-                        for rk, rv in rich.items():
-                            # categorical fields → accumulate for mode later
-                            # numeric fields → accumulate and aggregate
-                            rk_lower = rk.lower()
-                            if rk in ("matchId", "championName", "gameMode", "gameVersion",
-                                      "individualPosition", "teamPosition",
-                                      "perks", "team_bans", "legendaryItemUsed"):
-                                # non-numeric: keep in raw form (store latest / first)
-                                pass
-                            elif any(x in rk_lower for x in ("item", "perks", "bans")):
-                                # items / perks / bans → store as-is (not aggregated)
-                                pass
-                            else:
-                                self._accumulate_numeric(numeric_acc, rk, rv)
-                                seen_numeric_keys.add(rk)
-            except Exception:
-                pass
-
-        # --- build metrics ---
-        metrics: Dict[str, Any] = {}
-
-        if cs_vals:
-            metrics["cs_per_min"] = mean(cs_vals)
-        if kda_vals:
-            metrics["kda"] = mean(kda_vals)
-
-        # aggregate all rich numeric fields
-        aggregated = self._aggregate(numeric_acc, seen_numeric_keys)
-        metrics.update(aggregated)
-
-        # mode for categoricals
-        champion = Counter(champions).most_common(1)[0][0] if champions else None
-        role = Counter(roles).most_common(1)[0][0] if roles else None
-
-        # deltas
-        deltas: Dict[str, Any] = {}
-        if pro_reference:
-            for k, v in metrics.items():
-                pref = pro_reference.get(k)
-                if pref is None:
-                    deltas[k] = None
-                else:
-                    deltas[k] = round(v - float(pref), 3)
-
-        report = {
-            "player": player_puuid,
-            "role": role,
-            "champion": champion,
-            "games_analyzed": games,
-            "metrics": metrics,
-            "pro_reference": pro_reference if pro_reference is not None else None,
-            "deltas": deltas,
-        }
-
-        self.save_report(report, db)
-        try:
-            index_report_passages(report)
-        except Exception:
-            pass
-
-        return report
+            self.save_report(report, db)
+            return report
+        except Exception as exc:
+            logger.warning("build_player_report failed for %s: %s", player_puuid, exc)
+            return {"status": "error", "player": player_puuid, "detail": str(exc)}
 
     # ------------------------------------------------------------------
 
@@ -382,26 +359,13 @@ class ReportBuilder:
     # ------------------------------------------------------------------
 
     def build_match_report(self, match_doc: Dict[str, Any], db) -> Dict[str, Any]:
-        """Single-match report enriched with full match data when available."""
+        """Single-match report from parsed_metrics without full-match N+1 lookups."""
         try:
             parsed = match_doc.get('parsed_metrics') or match_doc.get('metrics') or {}
             player = match_doc.get('player_puuid') or parsed.get('player')
             match_id = match_doc.get('matchId') or match_doc.get('id') or parsed.get('matchId')
 
             metrics = dict(parsed) if isinstance(parsed, dict) else {}
-
-            # try to enrich with full match data
-            try:
-                if match_id:
-                    full = self._get_full_match(db, match_id)
-                    if full:
-                        rich = self._extract_rich_participant(full, player)
-                        # merge, with rich data taking precedence for known keys
-                        for rk, rv in rich.items():
-                            if rv is not None:
-                                metrics[rk] = rv
-            except Exception:
-                pass
 
             report = {
                 'player': player,
@@ -431,58 +395,10 @@ class ReportBuilder:
             except Exception:
                 pass
 
-            try:
-                index_report_passages(report)
-            except Exception:
-                pass
-
             return report
-        except Exception:
-            return {}
+        except Exception as exc:
+            logger.warning("build_match_report failed for match %s: %s", match_id, exc)
+            return {"status": "error", "matchId": match_doc.get("matchId") or "unknown", "detail": str(exc)}
 
 
-# ======================================================================
-# module-level helper for passage indexing
-# ======================================================================
 
-def index_report_passages(report: Dict[str, Any]) -> None:
-    """Create compact textual passages from a player report and upsert into vector store.
-
-    Best-effort: silently returns if embeddings/vector store are unavailable.
-    """
-    try:
-        recent = report.get("recent_games") or []
-        if not recent:
-            return
-
-        passages = []
-        metadatas = []
-        ids = []
-        for g in recent[:50]:
-            mid = g.get("matchId") or g.get("id") or "unknown"
-            text = (
-                f"match:{mid} champ:{g.get('champion')} "
-                f"result:{g.get('result')} kda:{g.get('kda')} "
-                f"highlights:{(g.get('highlights') or '')[:140]}"
-            )
-            passages.append(text)
-            metadatas.append({"player": report.get("player"), "matchId": mid,
-                              "champion": g.get('champion')})
-            ids.append(f"{report.get('player')}_{mid}")
-
-        if not passages:
-            return
-
-        try:
-            from modules.embeddings.embedder import Embedder
-            from modules.embeddings.store import VectorStore
-        except Exception:
-            return
-
-        embedder = Embedder()
-        embeddings = embedder.embed_texts(passages)
-        store = VectorStore()
-        store.upsert_docs(ids=ids, texts=passages, embeddings=embeddings,
-                          metadatas=metadatas)
-    except Exception:
-        return

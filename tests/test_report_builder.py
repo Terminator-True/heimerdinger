@@ -74,93 +74,33 @@ def test_build_player_report_and_save(tmp_path):
     assert data["player"] == "player1"
 
 
-def test_build_player_report_enriched_from_full_match(tmp_path):
-    """build_player_report should enrich metrics when full match docs exist."""
+def test_build_player_report_enriched_from_parsed_metrics(tmp_path):
+    """build_player_report should extract metrics from parsed_metrics only (no N+1)."""
     db = FakeDB()
     pm = db.get_collection("player_matches")
-    matches = db.get_collection("matches")
 
     champion_name = "Yasuo"
     puuid = "player-yasuo"
     match_id = "m_rich_01"
 
-    # full match doc with rich participant data
-    full_match = {
-        "metadata": {"matchId": match_id, "dataVersion": "2"},
-        "info": {
-            "gameDuration": 1800,
-            "gameMode": "CLASSIC",
-            "queueId": 420,
-            "gameVersion": "14.10.1",
-            "participants": [
-                {
-                    "puuid": puuid,
-                    "championName": champion_name,
-                    "individualPosition": "MIDDLE",
-                    "teamPosition": "MIDDLE",
-                    "win": True,
-                    "kills": 8,
-                    "deaths": 3,
-                    "assists": 5,
-                    "totalMinionsKilled": 210,
-                    "goldEarned": 14500,
-                    "goldSpent": 14000,
-                    "totalDamageDealtToChampions": 28500,
-                    "damageDealtToObjectives": 5200,
-                    "damageDealtToBuildings": 1800,
-                    "visionScore": 25,
-                    "wardsPlaced": 12,
-                    "wardsKilled": 4,
-                    "detectorWardsPlaced": 2,
-                    "dragonKills": 2,
-                    "baronKills": 1,
-                    "inhibitorKills": 0,
-                    "turretKills": 1,
-                    "totalTimeCCDealt": 42.5,
-                    "timeCCingOthers": 8.3,
-                    "totalTimeSpentDead": 45.0,
-                    "longestTimeSpentLiving": 720.0,
-                    "item0": 3153,
-                    "item1": 3142,
-                    "item6": 3340,
-                    "teamId": 100,
-                    "challenges": {
-                        "goldPerMinute": 483.0,
-                        "killParticipation": 0.65,
-                        "visionScorePerMinute": 0.83,
-                        "controlWardsPlaced": 1,
-                        "soloKills": 2,
-                        "multikills": 1,
-                    },
-                }
-            ],
-            "teams": [
-                {
-                    "teamId": 100,
-                    "win": True,
-                    "objectives": {
-                        "baron": {"kills": 1, "first": True},
-                        "dragon": {"kills": 3, "first": True},
-                        "tower": {"kills": 8, "first": True},
-                        "inhibitor": {"kills": 1, "first": False},
-                        "riftHerald": {"kills": 1, "first": True},
-                    },
-                    "bans": [{"championId": 11}, {"championId": 22}, {"championId": 33},
-                             {"championId": 44}, {"championId": 55}],
-                }
-            ],
-        },
-    }
-
-    matches[match_id] = full_match
-
-    # player_matches entry (minimal, will be enriched)
+    # player_matches entry with rich data in parsed_metrics
     pm[match_id] = {
         "player_puuid": puuid,
         "matchId": match_id,
         "championName": champion_name,
         "role": "MIDDLE",
-        "parsed_metrics": {"cs_per_min": 7.0, "kda": 4.33},
+        "parsed_metrics": {
+            "cs_per_min": 7.0,
+            "kda": 4.33,
+            "goldEarned": 14500,
+            "totalDamageDealtToChampions": 28500,
+            "visionScore": 25,
+            "wardsPlaced": 12,
+            "dragonKills": 2,
+            "baronKills": 1,
+            "ch_goldPerMinute": 483.0,
+            "ch_killParticipation": 0.65,
+        },
     }
 
     rb = ReportBuilder(output_dir=str(tmp_path / "reports_enriched"))
@@ -171,10 +111,9 @@ def test_build_player_report_enriched_from_full_match(tmp_path):
     assert report["champion"] == champion_name
 
     metrics = report["metrics"]
-    # legacy fields still present
+    # fields from parsed_metrics
     assert abs(metrics["cs_per_min"] - 7.0) < 1e-6
     assert abs(metrics["kda"] - 4.33) < 1e-6
-    # rich enrichment fields
     assert metrics.get("goldEarned") == 14500
     assert metrics.get("totalDamageDealtToChampions") == 28500
     assert metrics.get("visionScore") == 25
@@ -183,7 +122,6 @@ def test_build_player_report_enriched_from_full_match(tmp_path):
     assert metrics.get("baronKills") == 1
     assert metrics.get("ch_goldPerMinute") == 483.0
     assert metrics.get("ch_killParticipation") == 0.65
-    assert metrics.get("team_baronKills") == 1
 
     # aggregations (mean = same as value since only 1 game)
     assert metrics.get("goldEarned_median") == 14500
@@ -352,52 +290,25 @@ def test_extract_rich_participant_empty_participants():
     assert result == {}
 
 
-def test_build_match_report(tmp_path):
-    """build_match_report creates a report and enriches with full match data."""
+def test_build_match_report_from_parsed(tmp_path):
+    """build_match_report extracts metrics from parsed_metrics (no full match lookup)."""
     db = FakeDB()
-    matches = db.get_collection("matches")
 
     puuid = "p-match-report"
     match_id = "m_bmr_01"
-
-    # full match doc
-    full_match = {
-        "metadata": {"matchId": match_id},
-        "info": {
-            "gameDuration": 1600,
-            "gameMode": "CLASSIC",
-            "queueId": 420,
-            "gameVersion": "14.10",
-            "participants": [
-                {
-                    "puuid": puuid,
-                    "championName": "LeBlanc",
-                    "individualPosition": "MIDDLE",
-                    "kills": 10,
-                    "deaths": 2,
-                    "assists": 8,
-                    "goldEarned": 15500,
-                    "totalDamageDealtToChampions": 32000,
-                    "visionScore": 22,
-                    "wardsPlaced": 14,
-                    "totalTimeCCDealt": 15.0,
-                    "teamId": 100,
-                    "challenges": {"goldPerMinute": 581.0},
-                }
-            ],
-            "teams": [
-                {"teamId": 100, "win": True, "objectives": {}, "bans": []},
-            ],
-        },
-    }
-    matches[match_id] = full_match
 
     match_doc = {
         "player_puuid": puuid,
         "matchId": match_id,
         "champion": "LeBlanc",
         "role": "MIDDLE",
-        "parsed_metrics": {"cs_per_min": 7.5, "kda": 9.0},
+        "parsed_metrics": {
+            "cs_per_min": 7.5,
+            "kda": 9.0,
+            "goldEarned": 15500,
+            "totalDamageDealtToChampions": 32000,
+            "ch_goldPerMinute": 581.0,
+        },
     }
 
     rb = ReportBuilder(output_dir=str(tmp_path))
@@ -411,3 +322,41 @@ def test_build_match_report(tmp_path):
     assert report["metrics"]["goldEarned"] == 15500
     assert report["metrics"]["totalDamageDealtToChampions"] == 32000
     assert report["metrics"]["ch_goldPerMinute"] == 581.0
+
+
+def test_build_player_report_empty(tmp_path):
+    """Zero-match report returns status='empty' with player info."""
+    db = FakeDB()
+    rb = ReportBuilder(output_dir=str(tmp_path / "empty"))
+    report = rb.build_player_report("missing-puuid", db)
+
+    assert report["status"] == "empty"
+    assert report["player"] == "missing-puuid"
+    assert "detail" in report
+
+
+def test_build_player_report_error_on_exception(tmp_path):
+    """Exception in build_player_report returns status='error'."""
+    class BrokenDB(dict):
+        def get_collection(self, name):
+            raise RuntimeError("get_collection failed")
+
+    db = BrokenDB()
+
+    rb = ReportBuilder(output_dir=str(tmp_path / "error"))
+    report = rb.build_player_report("broken-player", db)
+
+    assert report["status"] == "error"
+    assert report["player"] == "broken-player"
+    assert "detail" in report
+
+
+def test_build_match_report_error(tmp_path):
+    """Exception in build_match_report returns status='error'."""
+    match_doc = {}  # missing all fields → will cause KeyError/AttributeError
+
+    rb = ReportBuilder(output_dir=str(tmp_path))
+    report = rb.build_match_report(match_doc, None)
+
+    assert report["status"] == "error"
+    assert "detail" in report

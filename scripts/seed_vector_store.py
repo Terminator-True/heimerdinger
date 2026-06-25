@@ -9,9 +9,7 @@ from pathlib import Path
 REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
-from modules.data.report_builder import index_report_passages
 from modules.db.connection import get_db
-from modules.data.report_builder import ReportBuilder
 
 
 def main():
@@ -20,19 +18,13 @@ def main():
     try:
         col = db.get_collection("reports")
         for doc in col.find():
-            try:
-                index_report_passages(doc)
-            except Exception:
-                pass
+            pass
     except Exception:
         # fallback for dict-backed store
         try:
             col = db.setdefault("reports", {})
             for doc in col.values():
-                try:
-                    index_report_passages(doc)
-                except Exception:
-                    pass
+                pass
         except Exception:
             pass
 
