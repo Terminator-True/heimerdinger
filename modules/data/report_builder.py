@@ -9,6 +9,140 @@ from modules.logger import get_logger
 logger = get_logger(__name__)
 
 
+def get_full_match(db, match_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch the full match document from the `matches` collection."""
+    try:
+        col = db.get_collection("matches")
+        return col.find_one({"metadata.matchId": match_id})
+    except Exception:
+        try:
+            col = db.setdefault("matches", {})
+            for v in col.values():
+                if v.get("metadata", {}).get("matchId") == match_id:
+                    return v
+        except Exception:
+            pass
+    return None
+
+
+def extract_rich_participant(full_match_doc: Dict[str, Any], player_puuid: str) -> Dict[str, Any]:
+    """Extract ALL coaching-relevant fields organized by category.
+
+    Works on the full Riot API match document stored in `matches` collection.
+    Returns a flat dict with keys grouped semantically (prefixes).
+    Returns an empty dict if participant cannot be found.
+    """
+    if not full_match_doc:
+        return {}
+
+    info = full_match_doc.get("info") or {}
+    participants: List[Dict] = info.get("participants") or []
+
+    # find the participant matching our puuid
+    target = None
+    for p in participants:
+        if p.get("puuid") == player_puuid:
+            target = p
+            break
+    if not target:
+        return {}
+
+    result: Dict[str, Any] = {}
+
+    # ----- identity  (match-level) -----
+    meta = full_match_doc.get("metadata") or {}
+    result["matchId"] = meta.get("matchId")
+    result["gameDuration"] = info.get("gameDuration")
+    result["gameMode"] = info.get("gameMode")
+    result["queueId"] = info.get("queueId")
+    result["gameVersion"] = info.get("gameVersion")
+
+    # ----- basic performance -----
+    for k in ("kills", "deaths", "assists", "championName",
+              "individualPosition", "teamPosition", "win", "totalMinionsKilled"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- economy -----
+    for k in ("goldEarned", "goldSpent"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- challenges (nested) -----
+    ch = target.get("challenges") or {}
+    challenge_fields = (
+        "goldPerMinute", "laneMinionsFirst10Minutes",
+        "maxCsAdvantageOnLaneOpponent",
+        "damagePerMinute", "teamDamagePercentage", "killParticipation",
+        "visionScorePerMinute", "controlWardsPlaced",
+        "controlWardTimeCoverageInRiverOrEnemyHalf",
+        "baronTakedowns", "turretPlatesTaken",
+        "firstTurretKilled", "firstTurretKilledTime",
+        "skillshotsHit", "skillshotsDodged", "abilityUses",
+        "enemyChampionImmobilizations",
+        "soloKills", "multikills",
+        "deathsByEnemyChamps", "maxKillDeficit",
+    )
+    for k in challenge_fields:
+        if k in ch:
+            result[f"ch_{k}"] = ch[k]
+
+    # ----- damage & impact -----
+    for k in ("totalDamageDealtToChampions",
+              "damageDealtToObjectives", "damageDealtToBuildings"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- vision -----
+    for k in ("visionScore", "wardsPlaced", "wardsKilled", "detectorWardsPlaced"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- objectives (participant-level) -----
+    for k in ("dragonKills", "baronKills", "inhibitorKills", "turretKills"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- mechanics / cc -----
+    for k in ("totalTimeCCDealt", "timeCCingOthers"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- mistakes / deaths -----
+    for k in ("totalTimeSpentDead", "longestTimeSpentLiving"):
+        if k in target:
+            result[k] = target[k]
+
+    # ----- build & items -----
+    for i in range(7):
+        k = f"item{i}"
+        if k in target:
+            result[k] = target[k]
+    if "legendaryItemUsed" in target:
+        result["legendaryItemUsed"] = target["legendaryItemUsed"]
+    if "perks" in target:
+        result["perks"] = target["perks"]
+
+    # ----- team-level objectives & bans -----
+    teams: List[Dict] = info.get("teams") or []
+    player_team_id = target.get("teamId")
+    for team in teams:
+        if team.get("teamId") != player_team_id:
+            continue
+        result["team_win"] = team.get("win")
+        obj = team.get("objectives") or {}
+        for obj_key in ("baron", "dragon", "tower", "inhibitor", "riftHerald"):
+            o = obj.get(obj_key) or {}
+            result[f"team_{obj_key}Kills"] = o.get("kills")
+            result[f"team_{obj_key}First"] = o.get("first")
+        bans = team.get("bans") or []
+        result["team_bans"] = [b.get("championId") for b in bans[:5]
+                               if b.get("championId") is not None]
+        break
+
+    return result
+
+
 class ReportBuilder:
     """Build coaching-style reports from parsed player metrics.
 
@@ -58,148 +192,6 @@ class ReportBuilder:
                 for d in col.values():
                     if d.get("player_puuid") == player_puuid:
                         yield d
-
-    # ------------------------------------------------------------------
-    #  full-match lookup (from `matches` collection)
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _get_full_match(db, match_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch the full match document from the `matches` collection."""
-        try:
-            col = db.get_collection("matches")
-            return col.find_one({"metadata.matchId": match_id})
-        except Exception:
-            try:
-                col = db.setdefault("matches", {})
-                for v in col.values():
-                    if v.get("metadata", {}).get("matchId") == match_id:
-                        return v
-            except Exception:
-                pass
-        return None
-
-    # ------------------------------------------------------------------
-    #  rich participant extraction (from full match info.participants[])
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _extract_rich_participant(full_match_doc: Dict[str, Any], player_puuid: str) -> Dict[str, Any]:
-        """Extract ALL coaching-relevant fields organized by category.
-
-        Works on the full Riot API match document stored in `matches` collection.
-        Returns a flat dict with keys grouped semantically (prefixes).
-        Returns an empty dict if participant cannot be found.
-        """
-        if not full_match_doc:
-            return {}
-
-        info = full_match_doc.get("info") or {}
-        participants: List[Dict] = info.get("participants") or []
-
-        # find the participant matching our puuid
-        target = None
-        for p in participants:
-            if p.get("puuid") == player_puuid:
-                target = p
-                break
-        if not target:
-            return {}
-
-        result: Dict[str, Any] = {}
-
-        # ----- identity  (match-level) -----
-        meta = full_match_doc.get("metadata") or {}
-        result["matchId"] = meta.get("matchId")
-        result["gameDuration"] = info.get("gameDuration")
-        result["gameMode"] = info.get("gameMode")
-        result["queueId"] = info.get("queueId")
-        result["gameVersion"] = info.get("gameVersion")
-
-        # ----- basic performance -----
-        for k in ("kills", "deaths", "assists", "championName",
-                  "individualPosition", "teamPosition", "win", "totalMinionsKilled"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- economy -----
-        for k in ("goldEarned", "goldSpent"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- challenges (nested) -----
-        ch = target.get("challenges") or {}
-        challenge_fields = (
-            "goldPerMinute", "laneMinionsFirst10Minutes",
-            "maxCsAdvantageOnLaneOpponent",
-            "damagePerMinute", "teamDamagePercentage", "killParticipation",
-            "visionScorePerMinute", "controlWardsPlaced",
-            "controlWardTimeCoverageInRiverOrEnemyHalf",
-            "baronTakedowns", "turretPlatesTaken",
-            "firstTurretKilled", "firstTurretKilledTime",
-            "skillshotsHit", "skillshotsDodged", "abilityUses",
-            "enemyChampionImmobilizations",
-            "soloKills", "multikills",
-            "deathsByEnemyChamps", "maxKillDeficit",
-        )
-        for k in challenge_fields:
-            if k in ch:
-                result[f"ch_{k}"] = ch[k]
-
-        # ----- damage & impact -----
-        for k in ("totalDamageDealtToChampions",
-                  "damageDealtToObjectives", "damageDealtToBuildings"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- vision -----
-        for k in ("visionScore", "wardsPlaced", "wardsKilled", "detectorWardsPlaced"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- objectives (participant-level) -----
-        for k in ("dragonKills", "baronKills", "inhibitorKills", "turretKills"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- mechanics / cc -----
-        for k in ("totalTimeCCDealt", "timeCCingOthers"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- mistakes / deaths -----
-        for k in ("totalTimeSpentDead", "longestTimeSpentLiving"):
-            if k in target:
-                result[k] = target[k]
-
-        # ----- build & items -----
-        for i in range(7):
-            k = f"item{i}"
-            if k in target:
-                result[k] = target[k]
-        if "legendaryItemUsed" in target:
-            result["legendaryItemUsed"] = target["legendaryItemUsed"]
-        if "perks" in target:
-            result["perks"] = target["perks"]
-
-        # ----- team-level objectives & bans -----
-        teams: List[Dict] = info.get("teams") or []
-        player_team_id = target.get("teamId")
-        for team in teams:
-            if team.get("teamId") != player_team_id:
-                continue
-            result["team_win"] = team.get("win")
-            obj = team.get("objectives") or {}
-            for obj_key in ("baron", "dragon", "tower", "inhibitor", "riftHerald"):
-                o = obj.get(obj_key) or {}
-                result[f"team_{obj_key}Kills"] = o.get("kills")
-                result[f"team_{obj_key}First"] = o.get("first")
-            bans = team.get("bans") or []
-            result["team_bans"] = [b.get("championId") for b in bans[:5]
-                                   if b.get("championId") is not None]
-            break
-
-        return result
 
     # ------------------------------------------------------------------
     #  aggregate helpers  (used by build_player_report)

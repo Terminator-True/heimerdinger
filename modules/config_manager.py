@@ -10,16 +10,6 @@ import json
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
 
 
-def list_teams() -> List[str]:
-    """List JSON files available in the config/ directory.
-
-    Returns list of filenames (not full paths).
-    """
-    if not CONFIG_DIR.exists():
-        return []
-    return [p.name for p in CONFIG_DIR.glob("*.json") if p.is_file()]
-
-
 def get_team(team_name_or_path: str) -> Dict[str, Any]:
     """Load a team configuration.
 

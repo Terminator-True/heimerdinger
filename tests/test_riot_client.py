@@ -3,17 +3,6 @@ import httpx
 from modules.riot_api.client import RiotClient
 
 
-def test_get_summoner_by_name(mock_server=None):
-    client = RiotClient(api_key="fake-key", region="europe")
-    summoner_name = "TestPlayer"
-    url = f"https://europe.api.riotgames.com/lol/summoner/v4/summoners/by-name/{summoner_name}"
-
-    with respx.mock as rsps:
-        rsps.get(url).respond(200, json={"id": "1", "puuid": "puuid-123"})
-        data = client.get_summoner_by_name(summoner_name)
-        assert data["puuid"] == "puuid-123"
-
-
 def test_get_match_ids_by_puuid():
     client = RiotClient(api_key="fake-key")
     puuid = "puuid-123"

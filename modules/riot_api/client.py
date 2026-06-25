@@ -25,14 +25,6 @@ class RiotClient:
         headers = {"X-Riot-Token": key} if key else {}
         self.client = httpx.Client(headers=headers, timeout=10.0)
 
-    def get_summoner_by_name(self, name: str) -> dict:
-        url = f"{self.base}/lol/summoner/v4/summoners/by-name/{name}"
-        # Ensure we pass an httpx.URL or str to httpx to avoid transport-level
-        # internals returning tuple/bytes to respx in some environments.
-        r = self.client.get(url)
-        r.raise_for_status()
-        return r.json()
-
     def get_account_by_riot_id(self, game_name: str, tag_line: str) -> dict:
         """Get account by Riot ID: gameName and tagLine.
 

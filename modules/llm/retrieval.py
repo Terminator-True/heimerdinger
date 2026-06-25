@@ -129,8 +129,6 @@ def retrieve_for_category(category_id: str, role: Optional[str], db, limit: int 
             # reduce to only the most recent entries (they were scanned newest-first)
             return [str(x) for x in out[:min(limit, len(out))]]
 
-            logger.info("retrieve_for_category: scanned %d docs from player_matches; found %d passages for category=%s", pm_scanned if 'pm_scanned' in locals() else 0, len(out), category_id)
-
     except Exception as e:
         logger.exception("retrieve_for_category failed: %s", e)
         return []

@@ -28,6 +28,7 @@ from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
 from modules.llm.question_classifier import classify_question
 from modules.llm.retrieval import retrieve_for_category
+from modules.data.report_builder import get_full_match, extract_rich_participant
 from modules.data.report_builder import ReportBuilder
 from modules.coaching.prompt_builder import CoachingPromptBuilder
 
@@ -88,13 +89,13 @@ def _build_last_match_report(db, role: str, puuid: Optional[str] = None) -> Dict
             return {}
 
         # 2. fetch full match doc
-        full_match = ReportBuilder._get_full_match(db, match_id)
+        full_match = get_full_match(db, match_id)
         if not full_match:
             logger.warning("No full match doc found for matchId=%s", match_id)
             return {}
 
         # 3. extract rich participant data
-        rich = ReportBuilder._extract_rich_participant(full_match, player_puuid)
+        rich = extract_rich_participant(full_match, player_puuid)
         if not rich:
             logger.warning("Participant not found for puuid=%s in match=%s", player_puuid, match_id)
             return {}
