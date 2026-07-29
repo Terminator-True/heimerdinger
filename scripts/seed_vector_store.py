@@ -1,7 +1,7 @@
-"""Utility to seed the vector DB from existing parsed matches/reports.
+"""CLI to populate the vector DB from Mongo reports/player_matches.
 
-Runs a best-effort pass over reports/ and player_matches collection to create
-compact passages and upsert into the Chroma store. Intended for local dev.
+Usage:
+  python scripts/seed_vector_store.py
 """
 import sys
 from pathlib import Path
@@ -9,24 +9,16 @@ from pathlib import Path
 REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
-from modules.db.connection import get_db
+
+from modules.embeddings.ingest import run_ingestion
 
 
 def main():
-    db = get_db()
-    # iterate reports collection if available
-    try:
-        col = db.get_collection("reports")
-        for doc in col.find():
-            pass
-    except Exception:
-        # fallback for dict-backed store
-        try:
-            col = db.setdefault("reports", {})
-            for doc in col.values():
-                pass
-        except Exception:
-            pass
+    counts = run_ingestion()
+    print(
+        f"Ingested {counts['reports']} reports and "
+        f"{counts['player_matches']} player_matches into the vector store."
+    )
 
 
 if __name__ == "__main__":

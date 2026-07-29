@@ -6,48 +6,30 @@ depends on it should guard accordingly.
 """
 from typing import List, Dict, Any, Optional
 from modules.logger import get_logger
+from modules.config_manager import get_embeddings_config
 
 
 class VectorStore:
-    def __init__(self, persist_directory: str = "chromadb_store"):
-        logger = get_logger()
+    def __init__(self, persist_directory: Optional[str] = None, collection_name: Optional[str] = None):
         try:
             import chromadb
-            from chromadb.config import Settings
         except Exception as e:
             raise ImportError("chromadb is required for the vector store") from e
 
-        # Try to create a persistent client using duckdb+parquet. Newer/older
-        # chromadb versions changed configuration and may raise a ValueError
-        # complaining about deprecated configuration. In that case fall back to
-        # a default in-memory Client (non-persistent) and log a clear warning so
-        # the operator can install compatible optional dependencies.
-        try:
-            self.client = chromadb.Client(Settings(chroma_db_impl="duckdb+parquet", persist_directory=persist_directory))
-        except ValueError as e:
-            # deprecated configuration detected; fallback to non-persistent client
-            logger.warning("Chroma configuration deprecated or incompatible: %s. Falling back to non-persistent Chroma client. To enable persistence, install chromadb optional deps (duckdb+parquet) or use a compatible chromadb version.", e)
-            try:
-                self.client = chromadb.Client()
-            except Exception as e2:
-                raise RuntimeError("Failed to initialize chromadb Client (fallback attempt failed): " + str(e2)) from e2
-        except Exception as e:
-            raise RuntimeError("Failed to initialize chromadb Client. Ensure optional deps (duckdb, parquet) are installed: " + str(e)) from e
+        config = get_embeddings_config()
+        persist_directory = persist_directory or config["persist_directory"]
+        self._default_collection_name = collection_name or config["collection_name"]
 
+        # chromadb>=0.4.0 replaced Settings(chroma_db_impl=...) with
+        # PersistentClient(path=...) as the supported persistence API.
+        self.client = chromadb.PersistentClient(path=persist_directory)
         self.collection = None
 
-    def ensure_collection(self, name: str = "heimerdinger"):
+    def ensure_collection(self, name: Optional[str] = None):
+        name = name or self._default_collection_name
         if self.collection:
             return self.collection
-        # create or get existing
-        try:
-            # chroma API changed between versions; try both get_collection and get_or_create
-            try:
-                self.collection = self.client.get_collection(name)
-            except Exception:
-                self.collection = self.client.get_or_create_collection(name)
-        except Exception:
-            self.collection = self.client.create_collection(name)
+        self.collection = self.client.get_or_create_collection(name)
         return self.collection
 
     def upsert_docs(self, ids: List[str], texts: List[str], embeddings: List[List[float]], metadatas: Optional[List[Dict[str, Any]]] = None):

@@ -23,6 +23,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from modules.logger import get_logger
+from modules.config_manager import get_embeddings_config
 from modules.db.connection import get_db
 from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
@@ -127,6 +128,36 @@ def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
     return {}
 
 
+def _semantic_passages(question: str, role: Optional[str], threshold: float) -> List[str]:
+    """Query the vector store for passages relevant to `question`.
+
+    Returns [] on any failure (missing store, import error, empty collection)
+    instead of raising — semantic retrieval is best-effort.
+    """
+    logger = get_logger()
+    try:
+        from modules.embeddings.embedder import Embedder
+        from modules.embeddings.store import VectorStore
+        embedder = Embedder()
+        store = VectorStore()
+        q_emb = embedder.embed_texts([question])[0]
+        hits = store.query(q_emb, top_k=5)
+        if not hits:
+            logger.warning("Semantic retrieval returned zero results (collection empty?)")
+            return []
+        passages = [
+            h.get("document") or str(h.get("metadata"))
+            for h in hits
+            if h.get("distance") is None or h.get("distance") <= threshold
+        ]
+        if not passages:
+            logger.info("Semantic retrieval: all hits below confidence threshold (%.2f)", threshold)
+        return passages
+    except Exception:
+        logger.exception("Semantic retrieval failed")
+        return []
+
+
 # ------------------------------------------------------------------
 #  main
 # ------------------------------------------------------------------
@@ -149,27 +180,46 @@ def ask_coach(question: str,
 
     # 2. Retrieve passages
     passages: List[str] = []
-    if role:
-        logger.info("Running retrieval recipe for category=%s role=%s last_match=%s",
-                     cat.get("category_id"), role, last_match)
-        passages = retrieve_for_category(cat.get("category_id"), role, db,
-                                         limit=5, last_match=last_match)
-        logger.info("Recipe returned %d passages", len(passages))
+    if last_match:
+        # last_match=True is out of scope for the semantic-primary reorder
+        # (CoachingPromptBuilder has no `passages` param) — unchanged behavior.
+        if role:
+            logger.info("Running retrieval recipe for category=%s role=%s last_match=%s",
+                         cat.get("category_id"), role, last_match)
+            passages = retrieve_for_category(cat.get("category_id"), role, db,
+                                             limit=5, last_match=last_match)
+            logger.info("Recipe returned %d passages", len(passages))
 
-    # Fallback to embedding retrieval
-    if not passages:
-        logger.info("Falling back to embedding-based retrieval")
-        try:
-            from modules.embeddings.embedder import Embedder
-            from modules.embeddings.store import VectorStore
-            embedder = Embedder()
-            store = VectorStore()
-            q_emb = embedder.embed_texts([question])[0]
-            hits = store.query(q_emb, top_k=5)
-            for h in hits:
-                passages.append(h.get('document') or str(h.get('metadata')))
-        except Exception:
-            logger.exception("Embedding retrieval failed")
+        if not passages:
+            logger.info("Falling back to embedding-based retrieval")
+            try:
+                from modules.embeddings.embedder import Embedder
+                from modules.embeddings.store import VectorStore
+                embedder = Embedder()
+                store = VectorStore()
+                q_emb = embedder.embed_texts([question])[0]
+                hits = store.query(q_emb, top_k=5)
+                for h in hits:
+                    passages.append(h.get('document') or str(h.get('metadata')))
+            except Exception:
+                logger.exception("Embedding retrieval failed")
+    else:
+        # last_match=False (aggregate report): semantic query is PRIMARY,
+        # retrieve_for_category ALWAYS also runs as a structured-stats
+        # complement — both merged into `passages` for PromptEngineer.
+        embeddings_config = get_embeddings_config()
+        threshold = float(embeddings_config.get("distance_threshold", 1.0))
+        semantic_passages = _semantic_passages(question, role, threshold)
+
+        structured_passages: List[str] = []
+        if role:
+            structured_passages = retrieve_for_category(
+                cat.get("category_id"), role, db, limit=5, last_match=last_match
+            )
+
+        passages = semantic_passages + structured_passages
+        logger.info("Merged passages: %d semantic + %d structured",
+                    len(semantic_passages), len(structured_passages))
 
     # 3. Build a player report with structured stats
     player_report: Dict[str, Any] = {"puuid": "ask_coach", "games_analyzed": "N/A"}
