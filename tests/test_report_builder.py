@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from modules.data.report_builder import ReportBuilder, render_match_snapshot
+from modules.data.report_builder import (
+    ReportBuilder,
+    extract_team_composition,
+    render_match_snapshot,
+)
 
 
 class FakeCol(dict):
@@ -268,3 +272,41 @@ def test_render_match_snapshot_keeps_participants_without_team_id():
     assert "Jugador: Bob | Rol: JUNGLE" in out  # no teamId → not dropped
     assert "Jugador: Carol | Rol: MID" in out   # teamId 300 not in info.teams → not dropped
     assert out.count("Jugador:") == 3  # every participant appears exactly once
+
+
+def test_extract_team_composition_returns_per_team_champions():
+    doc = {
+        "info": {
+            "participants": [
+                {"championName": "Yone", "teamId": 100},
+                {"championName": "Lee Sin", "teamId": 100},
+                {"championName": "Ahri", "teamId": 100},
+                {"championName": "Garen", "teamId": 200},
+                {"championName": "Lux", "teamId": 200},
+            ]
+        }
+    }
+    comp = extract_team_composition(doc)
+    assert comp[100] == ["Yone", "Lee Sin", "Ahri"]
+    assert comp[200] == ["Garen", "Lux"]
+
+
+def test_extract_team_composition_skips_missing_fields():
+    doc = {
+        "info": {
+            "participants": [
+                {"championName": "Yone", "teamId": 100},
+                {"championName": "SinEquipo"},           # no teamId -> skipped
+                {"teamId": 200},                          # no championName -> skipped
+                {"championName": None, "teamId": 100},    # null name -> skipped
+            ]
+        }
+    }
+    comp = extract_team_composition(doc)
+    assert comp == {100: ["Yone"]}
+
+
+def test_extract_team_composition_empty_doc():
+    assert extract_team_composition({}) == {}
+    assert extract_team_composition(None) == {}
+    assert extract_team_composition({"info": {"participants": []}}) == {}
