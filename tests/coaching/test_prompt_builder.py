@@ -12,6 +12,8 @@ from modules.coaching.prompt_builder import (
     _find_participant,
     _find_puuid_by_role,
     _fmt,
+    _item_label,
+    _render_build_section,
     _render_items,
 )
 from modules.riot_items import DataDragonClient, Item, ItemGold
@@ -477,3 +479,69 @@ def test_build_prompt_malformed_versions_degrades(match_doc):
     assert "3866" in prompt
     assert "Guantes de Bruja" not in prompt
     assert builder.resolution_status == "fallback"
+
+
+# ---------------------------------------------------------------------------
+#  BUILD composition section (task 2.2)
+# ---------------------------------------------------------------------------
+
+def test_build_prompt_includes_build_section(match_doc, tmp_path):
+    """BUILD renders items (vacío for empty slots), trinket, and both teams."""
+    builder = CoachingPromptBuilder(ddragon_client=_client(tmp_path))
+    prompt = builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert "=== BUILD ===" in prompt
+    assert (
+        "Items: Guantes de Bruja (1100 oro) | Filo del Infinito (3400 oro) | "
+        "Botas de Mercurio (1300 oro) | Corazón de Hielo (2900 oro) | "
+        "Libro de Hechicero (900 oro) | (vacío) | Trinket: Centinela de paja (0 oro)"
+        in prompt
+    )
+    assert "Aliados (100): Yone, Lee Sin, Ahri, Kai'Sa, Nautilus" in prompt
+    assert "Enemigos (200): Garen, Darius, Lux, Caitlyn, Thresh" in prompt
+    # BUILD is prepended before the instruction block
+    assert prompt.index("=== BUILD ===") < prompt.index("=== INSTRUCCIONES ===")
+
+
+def test_build_prompt_single_fetch_for_items_and_versions(ddragon_net, match_doc, tmp_path):
+    """items + trinket resolve in ONE item.json fetch; versions fetched once."""
+    builder = CoachingPromptBuilder(ddragon_client=_client(tmp_path))
+    builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert ddragon_net["versions"].call_count == 1
+    assert ddragon_net["items"].call_count == 1
+
+
+def test_build_prompt_stays_under_token_budget(match_doc, tmp_path):
+    """Full 10-player prompt with BUILD stays well under ~4000 chars."""
+    builder = CoachingPromptBuilder(ddragon_client=_client(tmp_path))
+    prompt = builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert len(prompt) < 4000
+
+
+def test_render_build_section_pure():
+    """Known/empty/trinket labels plus per-team champion lists."""
+    doc = {"info": {"participants": [
+        {"championName": "Yone", "teamId": 100},
+        {"championName": "Garen", "teamId": 200},
+    ]}}
+    named = {
+        3866: Item(name="Guantes de Bruja", gold=ItemGold(total=1100)),
+        3364: Item(name="Centinela de paja", gold=ItemGold(total=0)),
+    }
+    section = _render_build_section(doc, {"item6": 3364, "teamId": 100}, [3866, 0], named)
+    assert "=== BUILD ===" in section
+    assert "Items: Guantes de Bruja (1100 oro) | (vacío) | Trinket: Centinela de paja (0 oro)" in section
+    assert "Aliados (100): Yone" in section
+    assert "Enemigos (200): Garen" in section
+
+
+def test_render_build_section_ally_labels_flip_with_team():
+    """When the target plays team 200, labels flip accordingly."""
+    doc = {"info": {"participants": [
+        {"championName": "Yone", "teamId": 100},
+        {"championName": "Garen", "teamId": 200},
+    ]}}
+    named = {3866: Item(name="Guantes de Bruja", gold=ItemGold(total=1100))}
+    section = _render_build_section(doc, {"item6": 0, "teamId": 200}, [3866], named)
+    assert "Aliados (200): Garen" in section
+    assert "Enemigos (100): Yone" in section
+    assert "Trinket:" not in section  # no trinket slot on this participant

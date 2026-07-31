@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from modules.config_manager import get_ddragon_config
+from modules.data.report_builder import extract_team_composition
 from modules.llm.prompt_engineer import build_chat_context
 from modules.logger import get_logger
 from modules.riot_items import DataDragonClient
@@ -64,6 +65,30 @@ def _render_items(slots: List[Any],
                   named: Dict[int, Optional[Item]]) -> List[Optional[str]]:
     """Map raw item slot ids (0..5) to display labels, preserving order."""
     return [_item_label(s, named) for s in (slots or [])]
+
+
+def _render_build_section(match_doc: Dict[str, Any],
+                          participant: Dict[str, Any],
+                          slots: Optional[List[Any]],
+                          named: Dict[int, Optional[Item]]) -> str:
+    """Render the '=== BUILD ===' composition section.
+
+    Target items (slots 0-5, '(vacío)' for empty slots) plus the trinket
+    (item6) come from the same resolution map ``named`` — no extra Data
+    Dragon call. Per-team champion lists are read from the raw match doc.
+    """
+    labels = [_item_label(s, named) for s in (slots or [])]
+    parts = [label if label is not None else "(vacío)" for label in labels]
+    trinket = participant.get("item6") or 0
+    if trinket:
+        parts.append(f"Trinket: {_item_label(trinket, named)}")
+    lines = ["=== BUILD ===", "Items: " + " | ".join(parts)]
+    ally_id = participant.get("teamId") or 100
+    composition = extract_team_composition(match_doc)
+    for team_id in sorted(composition):
+        tag = "Aliados" if team_id == ally_id else "Enemigos"
+        lines.append(f"{tag} ({team_id}): " + ", ".join(composition[team_id]))
+    return "\n".join(lines)
 
 
 def _find_participant(match_doc: Dict[str, Any], puuid: str) -> Optional[Dict[str, Any]]:
@@ -471,6 +496,15 @@ class CoachingPromptBuilder:
         win = resolved.get("win", participant.get("win", "?"))
 
         # assemble (chat context is inserted before INSTRUCCIONES by the assembler)
+        chat_context = build_chat_context(match_snapshot, history)
+        if self._named:
+            build_section = _render_build_section(
+                match_doc, participant, self._raw_items, self._named
+            )
+            if build_section:
+                chat_context = (
+                    build_section + ("\n" + chat_context if chat_context else "")
+                )
         return self.assembler.assemble(
             riot_id=riot_id,
             champion_name=champ,
@@ -479,7 +513,7 @@ class CoachingPromptBuilder:
             campos_del_rol=campos,
             team_objectives=team_obj_text,
             coaching_focus=focus,
-            chat_context=build_chat_context(match_snapshot, history),
+            chat_context=chat_context,
         )
 
     # ------------------------------------------------------------------
