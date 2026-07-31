@@ -1,16 +1,117 @@
 """Tests for CoachingPromptBuilder — schema-driven prompt generation."""
 
+import copy
+
+import httpx
 import pytest
+import respx
+
 from modules.coaching.prompt_builder import (
     CoachingPromptBuilder,
     SchemaFieldResolver,
     _find_participant,
     _find_puuid_by_role,
     _fmt,
+    _render_items,
 )
+from modules.riot_items import DataDragonClient, Item, ItemGold
 
 # ---------------------------------------------------------------------------
-#  fixture: minimal match doc
+#  Data Dragon test data + hermetic network routes
+# ---------------------------------------------------------------------------
+
+VERSIONS_URL = "https://ddragon.leagueoflegends.com/api/versions.json"
+ITEM_URL = "https://ddragon.leagueoflegends.com/cdn/14.20.1/data/es_ES/item.json"
+# Released versions must resolve the fixture's gameVersion 14.20.568.9039 -> 14.20.1
+VERSIONS = ["15.4.1", "15.3.1", "14.20.1"]
+
+ITEM_ENTRIES = {
+    "3866": ("Guantes de Bruja", 1100),
+    "2524": ("Filo del Infinito", 3400),
+    "3009": ("Botas de Mercurio", 1300),
+    "3067": ("Corazón de Hielo", 2900),
+    "1028": ("Libro de Hechicero", 900),
+    "3364": ("Centinela de paja", 0),
+    "3340": ("Lente de control", 0),
+}
+ITEM_JSON = {
+    "type": "item",
+    "version": "14.20.1",
+    "data": {
+        item_id: {
+            "name": name,
+            "gold": {"total": gold, "base": gold, "sell": gold, "purchasable": True},
+            "plaintext": name,
+        }
+        for item_id, (name, gold) in ITEM_ENTRIES.items()
+    },
+}
+
+
+@pytest.fixture(autouse=True)
+def ddragon_net():
+    """Route Data Dragon calls to hermetic fixtures — never real network.
+
+    Uses the global respx router so ``respx.get`` registrations and request
+    interception share one router; every prompt-building test in this module
+    resolves items deterministically. The route objects are yielded for
+    call-count assertions.
+    """
+    with respx.mock:
+        versions = respx.get(VERSIONS_URL).mock(
+            return_value=httpx.Response(200, json=VERSIONS)
+        )
+        items = respx.get(ITEM_URL).mock(
+            return_value=httpx.Response(200, json=ITEM_JSON)
+        )
+        yield {"versions": versions, "items": items}
+
+
+def _client(tmp_path, version: str = "14.20.1") -> DataDragonClient:
+    """DataDragonClient with an isolated disk cache (deterministic tests)."""
+    return DataDragonClient(version=version, cache_dir=tmp_path, client=httpx.Client())
+
+
+class _FakeClient(httpx.Client):
+    """httpx.Client stub: returns canned responses per URL, or raises."""
+
+    def __init__(self, url_map=None, exc=None):
+        super().__init__()
+        self._url_map = url_map or {}
+        self._exc = exc
+
+    def get(self, url, *args, **kwargs):
+        if self._exc is not None:
+            raise self._exc
+        response = self._url_map.get(url)
+        if response is None:
+            return httpx.Response(500)
+        return response
+
+
+def _participant(puuid, champion, position, team_id, items, trinket, **extra):
+    """Build a minimal participant carrying item slots + optional extras."""
+    p = {
+        "puuid": puuid,
+        "championName": champion,
+        "teamPosition": position,
+        "individualPosition": position,
+        "win": False,
+        "teamId": team_id,
+        "kills": 0,
+        "deaths": 0,
+        "assists": 0,
+        "challenges": {},
+    }
+    for i, item_id in enumerate(items):
+        p[f"item{i}"] = item_id
+    p["item6"] = trinket
+    p.update(extra)
+    return p
+
+
+# ---------------------------------------------------------------------------
+#  fixture: full 10-player match doc (5v5, no Mid participant on purpose)
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
@@ -18,6 +119,7 @@ def match_doc():
     return {
         "metadata": {"matchId": "test-001"},
         "info": {
+            "gameVersion": "14.20.568.9039",
             "gameDuration": 1800,
             "gameMode": "CLASSIC",
             "queueId": 420,
@@ -43,8 +145,13 @@ def match_doc():
                     "longestTimeSpentLiving": 235,
                     "summoner1Id": 12,
                     "summoner2Id": 4,
-                    "item0": 3153,
-                    "item1": 3142,
+                    "item0": 3866,
+                    "item1": 2524,
+                    "item2": 3009,
+                    "item3": 3067,
+                    "item4": 1028,
+                    "item5": 0,
+                    "item6": 3364,
                     "challenges": {
                         "kda": 0.89,
                         "killParticipation": 0.18,
@@ -80,6 +187,22 @@ def match_doc():
                         "damagePerMinute": 420,
                     },
                 },
+                _participant("p-ahri", "Ahri", "BOTTOM", 100,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-kaisa", "Kai'Sa", "BOTTOM", 100,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-nautilus", "Nautilus", "SUPPORT", 100,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-garen", "Garen", "TOP", 200,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-darius", "Darius", "TOP", 200,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-lux", "Lux", "SUPPORT", 200,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-caitlyn", "Caitlyn", "BOTTOM", 200,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
+                _participant("p-thresh", "Thresh", "SUPPORT", 200,
+                             [3866, 2524, 3009, 3067, 1028, 0], 3340),
             ],
             "teams": [
                 {"teamId": 100, "win": False, "objectives": {
@@ -279,3 +402,78 @@ def test_fmt_float():
     assert _fmt(3.14159, 2) == "3.14"
     # 0 decimals means no fractional part
     assert _fmt(42.0, 0) == "42"
+
+
+# ---------------------------------------------------------------------------
+#  DDragon item-name resolution (tasks 2.1 / 2.4)
+# ---------------------------------------------------------------------------
+
+def test_build_prompt_renders_item_names(match_doc, tmp_path):
+    """Slots 0-4 render as 'Name (G oro)'; empty slot 5 is omitted."""
+    builder = CoachingPromptBuilder(ddragon_client=_client(tmp_path))
+    prompt = builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert (
+        "items: Guantes de Bruja (1100 oro), Filo del Infinito (3400 oro), "
+        "Botas de Mercurio (1300 oro), Corazón de Hielo (2900 oro), "
+        "Libro de Hechicero (900 oro)" in prompt
+    )
+    assert "ID 3866" not in prompt
+    assert builder.resolution_status == "resolved"
+
+
+def test_build_prompt_empty_slot_omitted(match_doc, tmp_path):
+    """The raw 0 of slot 5 must not leak into the stats line."""
+    builder = CoachingPromptBuilder(ddragon_client=_client(tmp_path))
+    prompt = builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert "Libro de Hechicero (900 oro), 0" not in prompt
+    assert "Libro de Hechicero (900 oro)" in prompt
+
+
+def test_build_prompt_unknown_item_shows_placeholder(match_doc, tmp_path):
+    """An id absent from the version's item data renders as unknown."""
+    doc = copy.deepcopy(match_doc)
+    target = next(p for p in doc["info"]["participants"] if p["puuid"] == "p-top")
+    target["item0"] = 9999  # not present in the mocked item data
+    builder = CoachingPromptBuilder(ddragon_client=_client(tmp_path))
+    prompt = builder.build_prompt(doc, puuid="p-top", role="Top")
+    assert "ID 9999 (desconocido)" in prompt
+
+
+def test_render_items_pure():
+    """Known -> 'Name (G oro)'; 0/None -> None (omitted); unknown -> 'ID N (...)'."""
+    named = {3866: Item(name="Guantes de Bruja", gold=ItemGold(total=1100))}
+    assert _render_items([3866, 0, None, 9999], named) == [
+        "Guantes de Bruja (1100 oro)",
+        None,
+        None,
+        "ID 9999 (desconocido)",
+    ]
+
+
+def test_build_prompt_offline_falls_back_to_raw_ids(match_doc):
+    """Network failure degrades to raw ids (old behavior), no crash."""
+    builder = CoachingPromptBuilder(
+        ddragon_client=DataDragonClient(
+            client=_FakeClient(exc=httpx.ConnectError("offline"))
+        )
+    )
+    prompt = builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert "items: 3866, 2524, 3009, 3067, 1028, 0" in prompt  # raw ids kept
+    assert "Guantes de Bruja" not in prompt
+    assert builder.resolution_status == "fallback"
+
+
+def test_build_prompt_malformed_versions_degrades(match_doc):
+    """Malformed versions.json -> ValueError -> raw-id fallback, no crash."""
+    bad = _FakeClient(url_map={
+        VERSIONS_URL: httpx.Response(
+            200,
+            content=b"{not json",
+            request=httpx.Request("GET", VERSIONS_URL),
+        )
+    })
+    builder = CoachingPromptBuilder(ddragon_client=DataDragonClient(client=bad))
+    prompt = builder.build_prompt(match_doc, puuid="p-top", role="Top")
+    assert "3866" in prompt
+    assert "Guantes de Bruja" not in prompt
+    assert builder.resolution_status == "fallback"
