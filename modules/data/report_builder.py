@@ -25,6 +25,82 @@ def get_full_match(db, match_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _snapshot_value(val: Any) -> str:
+    """Format a snapshot stat as an integer when possible, else '-' for None."""
+    if val is None:
+        return "-"
+    try:
+        f = float(val)
+        return str(int(f)) if f.is_integer() else str(f)
+    except (ValueError, TypeError):
+        return str(val)
+
+
+def _snapshot_win(win: Any) -> str:
+    """Map win bool to Spanish Sí/No, '-' when missing."""
+    if isinstance(win, str):
+        win = win.strip().lower()
+    if win == 1 or win == "1":  # True == 1, so bools are covered here
+        return "Sí"
+    if win == 0 or win == "0":  # False == 0
+        return "No"
+    return "-"
+
+
+def render_match_snapshot(full_match_doc: Dict[str, Any]) -> str:
+    """Render one compact Spanish line per participant, grouped by team.
+
+    Output example::
+
+        Equipo 1:
+        Jugador: Alice | Rol: TOP | Campeón: Garen | KDA: 3/2/5 | CS@10: 42 | GPM: 410 | DPM: 520 | Visión: 21 | Victoria: Sí
+        Equipo 2:
+        Jugador: Bob | Rol: JUNGLE | Campeón: Lee Sin | KDA: 1/4/2 | CS@10: 30 | GPM: 380 | DPM: 300 | Visión: 15 | Victoria: No
+
+    Returns an empty string when the match doc has no participants.
+    """
+    if not full_match_doc:
+        return ""
+    info = full_match_doc.get("info") or {}
+    participants: List[Dict] = info.get("participants") or []
+    if not participants:
+        return ""
+
+    # team order: info.teams first, then any participant teamIds not listed in
+    # the teams doc (deduped, participant order); fall back to sorted teamIds.
+    teams: List[Dict] = info.get("teams") or []
+    team_ids = [t.get("teamId") for t in teams if t.get("teamId") is not None]
+    for p in participants:
+        tid = p.get("teamId")
+        if tid is not None and tid not in team_ids:
+            team_ids.append(tid)
+    if not team_ids:
+        team_ids = sorted({p.get("teamId") for p in participants if p.get("teamId") is not None})
+
+    by_team: Dict[int, List[Dict]] = {}
+    for p in participants:
+        by_team.setdefault(p.get("teamId") or 100, []).append(p)
+
+    blocks = []
+    for idx, tid in enumerate(team_ids, start=1):
+        lines = [f"Equipo {idx}:"]
+        for p in by_team.get(tid, []):
+            ch = p.get("challenges") or {}
+            role = (p.get("individualPosition") or p.get("teamPosition") or "").upper()
+            kda = f"{_snapshot_value(p.get('kills'))}/{_snapshot_value(p.get('deaths'))}/{_snapshot_value(p.get('assists'))}"
+            lines.append(
+                f"Jugador: {p.get('summonerName') or '-'} | Rol: {role or '-'} | "
+                f"Campeón: {p.get('championName') or '-'} | KDA: {kda} | "
+                f"CS@10: {_snapshot_value(ch.get('laneMinionsFirst10Minutes'))} | "
+                f"GPM: {_snapshot_value(ch.get('goldPerMinute'))} | "
+                f"DPM: {_snapshot_value(ch.get('damagePerMinute'))} | "
+                f"Visión: {_snapshot_value(p.get('visionScore'))} | "
+                f"Victoria: {_snapshot_win(p.get('win'))}"
+            )
+        blocks.append("\n".join(lines))
+    return "\n".join(blocks)
+
+
 def extract_rich_participant(full_match_doc: Dict[str, Any], player_puuid: str) -> Dict[str, Any]:
     """Extract ALL coaching-relevant fields organized by category.
 

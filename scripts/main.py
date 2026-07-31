@@ -20,6 +20,7 @@ La ingesta de datos corre automáticamente vía scripts/auto_ingest_loop.py.
 import os
 import sys
 from pathlib import Path
+from typing import Dict, List
 
 from dotenv import load_dotenv
 
@@ -75,19 +76,24 @@ def _run_coach_interactive():
 
     console.print()
 
+    turns: List[Dict[str, str]] = []
+
     while True:
         question = input("❓ ")
         if question.lower() in ("salir", "quit", "exit", "q"):
             break
 
         try:
-            ask_coach(
+            response = ask_coach(
                 question=question,
                 role=role,
                 model=model,
                 last_match=last_match,
                 lang=lang,
+                history=turns[-12:] or None,
             )
+            turns.append({"role": "user", "content": question})
+            turns.append({"role": "assistant", "content": str(response)})
         except Exception as exc:
             print(f"Error: {exc}")
 

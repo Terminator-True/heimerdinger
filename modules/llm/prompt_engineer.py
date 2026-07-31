@@ -7,6 +7,40 @@ Usage:
 from typing import Dict, Optional, List
 
 
+MAX_HISTORY_TURNS = 6
+
+
+def build_chat_context(match_snapshot: Optional[str] = None,
+                       history: Optional[List[Dict]] = None) -> str:
+    """Render match snapshot + conversation history + a follow-up instruction.
+
+    The snapshot section appears only when *match_snapshot* is truthy; the
+    history section renders one line per turn (``Usuario:``/``Coach:``), capped
+    at MAX_HISTORY_TURNS, skipping non-dict turns and non-list history.
+    Returns "" when both inputs are empty.
+    """
+    sections = []
+    if match_snapshot:
+        sections.append("MATCH SNAPSHOT (todos los jugadores):\n" + match_snapshot.strip())
+    if isinstance(history, list):
+        turn_lines = []
+        for turn in history[-MAX_HISTORY_TURNS:]:
+            if not isinstance(turn, dict):
+                continue
+            t_role = (turn.get("role") or "").lower()
+            speaker = "Usuario" if t_role in ("user", "usuario", "human") else "Coach"
+            turn_lines.append(f"{speaker}: {turn.get('content') or ''}")
+        if turn_lines:
+            sections.append("CONVERSATION HISTORY:\n" + "\n".join(turn_lines))
+    if not sections:
+        return ""
+    return (
+        "\n" + "\n\n".join(sections) + "\n\n"
+        "Responde a la PREGUNTA MÁS RECIENTE del usuario usando el contexto disponible. "
+        "No hagas preguntas de aclaración; responde directamente.\n\n"
+    )
+
+
 class PromptEngineer:
     """Builds prompts for the LLM to produce coaching-style advice.
 
@@ -164,7 +198,9 @@ class PromptEngineer:
                      language: str = "es",
                      output_format: str = "text",
                      game_summary: Optional[str] = None,
-                     important_points: Optional[List[str]] = None) -> str:
+                     important_points: Optional[List[str]] = None,
+                     match_snapshot: Optional[str] = None,
+                     history: Optional[List[Dict]] = None) -> str:
         """Compose a coaching prompt with structured stats.
 
         Args:
@@ -176,6 +212,8 @@ class PromptEngineer:
             output_format: 'text' for plain paragraph, 'json' for structured JSON.
             game_summary: optional short game-level description.
             important_points: optional list of bullet-point highlights.
+            match_snapshot: optional multi-line snapshot of all players in the match.
+            history: optional list of {"role", "content"} turns; last 6 used.
 
         Returns:
             A single string with the composed prompt.
@@ -202,6 +240,9 @@ class PromptEngineer:
         if important_points:
             pts = important_points[:6]
             game_section += "IMPORTANT POINTS:\n" + "\n".join(f"- {p.strip()}" for p in pts) + "\n"
+
+        # ----- optional multi-turn / snapshot context -----
+        context = build_chat_context(match_snapshot, history)
 
         # ----- language instruction -----
         lang_instruction = ""
@@ -239,6 +280,7 @@ Example:
             f"SYSTEM: {system}\n\n"
             f"USER: {user}"
             f"{game_section}"
+            f"{context}"
             f"{passage_section}"
             f"{lang_instruction}"
             f"{chosen_instruction}"

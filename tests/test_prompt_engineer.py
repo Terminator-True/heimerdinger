@@ -220,3 +220,87 @@ def test_build_prompt_role_guidance():
             output_format="text",
         )
         assert keyword in prompt, f"Role {role} should contain '{keyword}'"
+
+
+def test_build_prompt_includes_snapshot_and_history():
+    """match_snapshot and history sections should appear when passed."""
+    pe = PromptEngineer()
+    prompt = pe.build_prompt(
+        {"player": "P", "metrics": {"kills": 1}},
+        role="Top",
+        match_snapshot="Equipo 1:\nJugador: Alice | Rol: TOP | Campeón: Garen | KDA: 3/2/5",
+        history=[
+            {"role": "user", "content": "analiza mi partida"},
+            {"role": "assistant", "content": "tu CS es bajo"},
+            {"role": "user", "content": "¿y el mid?"},
+        ],
+        language="es",
+        output_format="text",
+    )
+    assert "MATCH SNAPSHOT" in prompt
+    assert "Jugador: Alice" in prompt
+    assert "CONVERSATION HISTORY" in prompt
+    assert "Usuario: analiza mi partida" in prompt
+    assert "Coach: tu CS es bajo" in prompt
+    assert "Usuario: ¿y el mid?" in prompt
+    # instruction: answer the latest question without clarifying
+    assert "PREGUNTA MÁS RECIENTE" in prompt
+    assert "aclaración" in prompt
+
+
+def test_build_prompt_history_caps_at_six():
+    """Only the last 6 turns are included, oldest first."""
+    pe = PromptEngineer()
+    history = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turno {i}"}
+               for i in range(10)]
+    prompt = pe.build_prompt(
+        {"player": "P", "metrics": {}},
+        role="Top",
+        history=history,
+        language="es",
+        output_format="text",
+    )
+    assert "turno 0" not in prompt
+    assert "turno 3" not in prompt  # pins the cap: last 6 of 10 are turnos 4-9
+    assert "turno 4" in prompt
+    assert "turno 9" in prompt
+
+
+# ------------------------------------------------------------------
+#  build_chat_context (shared snapshot/history helper)
+# ------------------------------------------------------------------
+
+def test_build_chat_context_skips_non_dict_and_handles_partial_inputs():
+    """Non-dict turns are skipped; snapshot-only and history-only both work;
+    non-list history does not raise; both empty returns ''."""
+    from modules.llm.prompt_engineer import build_chat_context
+
+    ctx = build_chat_context(
+        match_snapshot="Jugador: Alice | Victoria: Sí",
+        history=[
+            {"role": "user", "content": "hola"},
+            "malformed",
+            {"role": "assistant", "content": "adiós"},
+        ],
+    )
+    assert "MATCH SNAPSHOT (todos los jugadores):" in ctx
+    assert "Jugador: Alice" in ctx
+    assert "CONVERSATION HISTORY:" in ctx
+    assert "Usuario: hola" in ctx
+    assert "Coach: adiós" in ctx
+    assert "malformed" not in ctx
+
+    # history-only
+    ctx_hist = build_chat_context(history=[{"role": "user", "content": "solo hist"}])
+    assert "CONVERSATION HISTORY:" in ctx_hist
+    assert "MATCH SNAPSHOT" not in ctx_hist
+
+    # snapshot-only
+    ctx_snap = build_chat_context(match_snapshot="solo snap")
+    assert "MATCH SNAPSHOT" in ctx_snap
+    assert "CONVERSATION HISTORY" not in ctx_snap
+
+    # non-list history is coerced away, no crash
+    assert build_chat_context(match_snapshot="x", history="not a list") != ""
+    assert build_chat_context(history="not a list") == ""
+    assert build_chat_context() == ""

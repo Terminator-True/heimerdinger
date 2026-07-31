@@ -159,3 +159,139 @@ def test_ingest_roundtrip(monkeypatch, tmp_path):
     count2 = ingest_reports(db, store, embedder)
     assert count2 == 1
     assert len(store.collection.docs) == 1
+
+
+def test_render_texts_use_spanish_narrative():
+    """Chunk text must share vocabulary with natural-language Spanish questions."""
+    from modules.embeddings.ingest import render_report_text, render_match_text
+
+    report = {
+        "player": "p",
+        "role": "Jungle",
+        "games_analyzed": 12,
+        "metrics": {"cs_per_min": 5.2, "vision_score": 22, "kda": 3.1},
+    }
+    rtxt = render_report_text(report)
+    assert "Farmeo" in rtxt
+    assert "rol" in rtxt.lower()
+    assert "jungle" in rtxt.lower()
+    assert "cs_per_min" in rtxt  # raw metric name kept alongside the Spanish label
+    assert "Visión" in rtxt
+
+    match = {
+        "matchId": "M-1",
+        "role": "Top",
+        "championName": "Garen",
+        "parsed_metrics": {
+            "kills": 3, "deaths": 2, "assists": 5, "cs": 42,
+            "goldEarned": 410, "visionScore": 21,
+            "damageDealtToChampions": 520, "win": True,
+        },
+    }
+    mtxt = render_match_text(match)
+    assert "Partida M-1" in mtxt
+    assert "KDA" in mtxt
+    assert "Farmeo total" in mtxt
+    assert "Farmeo total (cs): 42" in mtxt
+    # `cs` is total game CS — must NOT claim it is a 10-minute figure
+    assert "a los 10 minutos" not in mtxt
+    assert "Victoria Sí" in mtxt
+
+    # None/missing values degrade to "-" instead of crashing
+    bare_report = render_report_text({"role": None})
+    assert "desconocido" in bare_report
+    assert "-" in bare_report
+    bare_match = render_match_text({})
+    assert "Partida -" in bare_match
+    assert "Campeón -" in bare_match
+
+
+def test_render_match_text_cs10_is_separate_field():
+    """laneMinionsFirst10Minutes renders as its OWN field, never conflated
+    with total game CS (which is totalMinionsKilled + neutralMinionsKilled)."""
+    from modules.embeddings.ingest import render_match_text
+
+    match = {
+        "matchId": "M-2",
+        "role": "Mid",
+        "parsed_metrics": {"cs": 150, "laneMinionsFirst10Minutes": 48},
+    }
+    mtxt = render_match_text(match)
+    assert "Farmeo total (cs): 150" in mtxt
+    assert "Farmeo a los 10 minutos (laneMinionsFirst10Minutes): 48" in mtxt
+    # the two figures must never be merged into one claim
+    assert "150 minions a los 10 minutos" not in mtxt
+
+
+def test_canonical_role_mapping():
+    from modules.embeddings.ingest import _canonical_role
+
+    assert _canonical_role("MIDDLE") == "Mid"
+    assert _canonical_role("BOTTOM") == "Bot"
+    assert _canonical_role("UTILITY") == "Support"
+    assert _canonical_role("TOP") == "Top"
+    assert _canonical_role("JUNGLE") == "Jungle"
+    # case variants are tolerated
+    assert _canonical_role("Top") == "Top"
+    assert _canonical_role("middle") == "Mid"
+    # unknown values pass through unchanged; None stays None
+    assert _canonical_role("unknown_role") == "unknown_role"
+    assert _canonical_role(None) is None
+
+
+def test_ingest_normalizes_role_metadata():
+    """Riot teamPosition vocabulary in docs is normalized to canonical role
+    names in the chroma metadata for BOTH reports and player_matches."""
+    from modules.embeddings.ingest import ingest_reports, ingest_player_matches
+
+    class FakeEmbedder:
+        def embed_texts(self, texts):
+            return [[float(len(t))] for t in texts]
+
+    class FakeCollection:
+        def __init__(self):
+            self.docs = {}
+
+        def upsert(self, ids, documents, embeddings, metadatas):
+            for i, doc, emb, meta in zip(ids, documents, embeddings, metadatas):
+                self.docs[i] = {"document": doc, "embedding": emb, "metadata": meta}
+
+    class FakeStore:
+        def __init__(self):
+            self.collection = FakeCollection()
+
+        def upsert_docs(self, ids, texts, embeddings, metadatas=None):
+            self.collection.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas or [{}] * len(ids))
+
+    class FakeCol:
+        def __init__(self, docs):
+            self._docs = docs
+
+        def find(self, *_args, **_kwargs):
+            return list(self._docs)
+
+    class FakeDB:
+        def __init__(self, collections):
+            self._collections = collections
+
+        def get_collection(self, name):
+            return FakeCol(self._collections.get(name, []))
+
+    db = FakeDB({
+        "reports": [
+            {"_id": "r1", "player": "p1", "role": "MIDDLE", "games_analyzed": 3, "metrics": {}},
+        ],
+        "player_matches": [
+            {"matchId": "m1", "player_puuid": "p1", "role": "UTILITY", "parsed_metrics": {"cs": 10}},
+            {"matchId": "m2", "player_puuid": "p2", "role": "BOTTOM", "parsed_metrics": {"cs": 20}},
+        ],
+    })
+    store = FakeStore()
+    embedder = FakeEmbedder()
+
+    ingest_reports(db, store, embedder)
+    ingest_player_matches(db, store, embedder)
+
+    assert store.collection.docs["report:r1"]["metadata"]["role"] == "Mid"
+    assert store.collection.docs["match:m1:p1"]["metadata"]["role"] == "Support"
+    assert store.collection.docs["match:m2:p2"]["metadata"]["role"] == "Bot"

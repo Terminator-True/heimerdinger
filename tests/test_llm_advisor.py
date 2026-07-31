@@ -1,4 +1,7 @@
 """Unit tests for the LLMAdvisor using a mocked OllamaClient."""
+import sys
+import types
+
 import pytest
 
 from modules.llm.llm_advisor import LLMAdvisor
@@ -17,7 +20,27 @@ class FakeClient:
         return {"output": "Focus on positioning and clear communication."}
 
 
-def test_llm_advisor_advise_uses_prompt_engineer_and_returns_structure():
+@pytest.fixture
+def hermetic_embeddings(monkeypatch):
+    """LLMAdvisor loads the embedding model in its constructor; keep it fake
+    so unit tests never download/load the real (multilingual) model."""
+    class FakeEmbedder:
+        def embed_texts(self, texts):
+            return [[0.1, 0.2]]
+
+    class FakeStore:
+        def query(self, emb, top_k=5):
+            return []
+
+    fake_embeddings_mod = types.ModuleType("modules.embeddings.embedder")
+    fake_embeddings_mod.Embedder = FakeEmbedder
+    fake_store_mod = types.ModuleType("modules.embeddings.store")
+    fake_store_mod.VectorStore = FakeStore
+    monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
+    monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
+
+
+def test_llm_advisor_advise_uses_prompt_engineer_and_returns_structure(hermetic_embeddings):
     fake = FakeClient()
     pe = PromptEngineer()
     advisor = LLMAdvisor(client=fake, engineer=pe)

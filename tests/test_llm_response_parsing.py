@@ -1,5 +1,9 @@
 """Tests for LLM response parsing in LLMAdvisor."""
 import json
+import sys
+import types
+
+import pytest
 
 from modules.llm.llm_advisor import LLMAdvisor
 from modules.llm.prompt_engineer import PromptEngineer
@@ -18,7 +22,27 @@ class FakeClient:
         return {"output": self.response_text}
 
 
-def test_advise_parses_json_block_and_composes_advice():
+@pytest.fixture
+def hermetic_embeddings(monkeypatch):
+    """LLMAdvisor loads the embedding model in its constructor; keep it fake
+    so unit tests never download/load the real (multilingual) model."""
+    class FakeEmbedder:
+        def embed_texts(self, texts):
+            return [[0.1, 0.2]]
+
+    class FakeStore:
+        def query(self, emb, top_k=5):
+            return []
+
+    fake_embeddings_mod = types.ModuleType("modules.embeddings.embedder")
+    fake_embeddings_mod.Embedder = FakeEmbedder
+    fake_store_mod = types.ModuleType("modules.embeddings.store")
+    fake_store_mod.VectorStore = FakeStore
+    monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
+    monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
+
+
+def test_advise_parses_json_block_and_composes_advice(hermetic_embeddings):
     # noisy text surrounding a JSON block
     llm_output = (
         "Here is my analysis.\n\n" 
@@ -46,7 +70,7 @@ def test_advise_parses_json_block_and_composes_advice():
     assert "Areas of improvement" in result["advice_text"]
 
 
-def test_advise_falls_back_on_malformed_json():
+def test_advise_falls_back_on_malformed_json(hermetic_embeddings):
     # missing closing brace -> malformed
     llm_output = "Results: ```{ \"areas_of_improvement\": [\"patience\"]``` some trailing text"
     fake = FakeClient(llm_output)

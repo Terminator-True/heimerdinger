@@ -183,6 +183,28 @@ def test_build_prompt_empty_doc():
     assert builder.build_prompt({}) == ""
 
 
+def test_build_prompt_includes_snapshot_and_history(match_doc):
+    """match_snapshot/history render before INSTRUCCIONES (shared helper)."""
+    builder = CoachingPromptBuilder()
+    prompt = builder.build_prompt(
+        match_doc,
+        puuid="p-top",
+        role="Top",
+        match_snapshot="Jugador: Alice | Victoria: Sí",
+        history=[
+            {"role": "user", "content": "analiza mi partida"},
+            {"role": "assistant", "content": "tu CS es bajo"},
+        ],
+    )
+    assert "MATCH SNAPSHOT" in prompt
+    assert "Jugador: Alice" in prompt
+    assert "CONVERSATION HISTORY" in prompt
+    assert "Usuario: analiza mi partida" in prompt
+    assert "Coach: tu CS es bajo" in prompt
+    # context must come before the schema's own instruction block
+    assert prompt.index("MATCH SNAPSHOT") < prompt.index("=== INSTRUCCIONES ===")
+
+
 def test_build_prompt_missing_puuid(match_doc):
     builder = CoachingPromptBuilder()
     assert builder.build_prompt(match_doc, puuid="nobody") == ""

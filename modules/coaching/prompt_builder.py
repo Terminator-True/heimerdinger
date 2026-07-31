@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from modules.llm.prompt_engineer import build_chat_context
+
 
 # ---------------------------------------------------------------------------
 #  helpers
@@ -252,8 +254,14 @@ class PromptAssembler:
                  win: Any,
                  campos_del_rol: str,
                  team_objectives: str,
-                 coaching_focus: str) -> str:
-        """Build the final prompt string from parts."""
+                 coaching_focus: str,
+                 chat_context: str = "") -> str:
+        """Build the final prompt string from parts.
+
+        *chat_context* (snapshot + history + follow-up) is inserted before the
+        ``=== INSTRUCCIONES ===`` section so it does not fight the schema's
+        own instruction block; appended at the end if the marker is absent.
+        """
         template = self.schema.get("prompt_template", {})
         structure = template.get("structure", "")
 
@@ -286,7 +294,7 @@ class PromptAssembler:
                 "Responde exclusivamente en castellano."
             )
 
-        return structure.format(
+        result = structure.format(
             riotId=riot_id,
             championName=champion_name,
             teamPosition=team_position,
@@ -295,6 +303,14 @@ class PromptAssembler:
             team_objectives=team_objectives,
             coaching_focus=coaching_focus,
         )
+
+        if chat_context:
+            marker = "=== INSTRUCCIONES ==="
+            if marker in result:
+                result = result.replace(marker, f"{chat_context.strip()}\n\n{marker}", 1)
+            else:
+                result += "\n" + chat_context.strip()
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +332,9 @@ class CoachingPromptBuilder:
 
     def build_prompt(self, match_doc: Dict[str, Any],
                      puuid: Optional[str] = None,
-                     role: Optional[str] = None) -> str:
+                     role: Optional[str] = None,
+                     match_snapshot: Optional[str] = None,
+                     history: Optional[List[Dict]] = None) -> str:
         """Build a coaching prompt for the given match + player.
 
         Args:
@@ -324,6 +342,8 @@ class CoachingPromptBuilder:
             puuid: Player to analyse. If None, auto-detected from *role*.
             role: Role string (Top, Jungle, Mid, Bot, Support, coach).
                   If None, auto-detected from participant data.
+            match_snapshot: optional multi-line snapshot of all players in the match.
+            history: optional list of {"role", "content"} turns; last 6 used.
 
         Returns:
             A ~800-token prompt string ready for LLaMA.
@@ -381,7 +401,7 @@ class CoachingPromptBuilder:
         champ = resolved.get("championName", participant.get("championName", "?"))
         win = resolved.get("win", participant.get("win", "?"))
 
-        # assemble
+        # assemble (chat context is inserted before INSTRUCCIONES by the assembler)
         return self.assembler.assemble(
             riot_id=riot_id,
             champion_name=champ,
@@ -390,6 +410,7 @@ class CoachingPromptBuilder:
             campos_del_rol=campos,
             team_objectives=team_obj_text,
             coaching_focus=focus,
+            chat_context=build_chat_context(match_snapshot, history),
         )
 
     # ------------------------------------------------------------------

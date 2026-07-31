@@ -1,5 +1,76 @@
+"""Retrieval helpers: structured recipe retrieval plus heuristic role
+detection and keyword extraction for the semantic/lexical fallback path."""
+import re
 from typing import List, Optional
 from modules.logger import get_logger
+
+
+# Role patterns are regexes applied to the lowercased question. They are
+# deliberately conservative to avoid false positives: "top 3" is a ranking,
+# "soporte técnico" is tech support, and bare "bot" needs lane/adc context.
+_ROLE_PATTERNS: List[tuple] = [
+    ("Top", [r"\btop(?!\s*\d)", r"toplaner"]),
+    ("Jungle", [r"\bjungla\b", r"\bjungler\b", r"\bjungle\b", r"\bjg\b"]),
+    ("Mid", [r"\bmidlaner\b", r"\bmid\b"]),
+    ("Bot", [r"\badc\b", r"bot\s*lane", r"\btirador\b"]),
+    ("Support", [r"\bsupp\b", r"\bsupport\b", r"\bsoporte(?!\s*t[eé]cnico)"]),
+]
+
+_STOPWORDS = {
+    "que", "como", "cómo", "qué", "fue", "la", "el", "las", "del", "los", "de",
+    "en", "y", "a", "o", "partida", "partidas", "jugador", "coach", "me", "mi",
+    "para", "por", "con", "se", "su", "es", "un", "una", "al",
+}
+
+_SYNONYMS = {
+    "farm": "cs", "farmeo": "cs", "minions": "cs",
+    "asesinatos": "kills",
+    "muertes": "deaths", "muerte": "deaths",
+    "oro": "gold",
+    "daño": "damage", "dano": "damage",
+    "victoria": "win",
+}
+
+
+def detect_role(question: str) -> Optional[str]:
+    """Heuristic lane/role detection from a free-text question.
+
+    First match wins, priority order: Top, Jungle, Mid, Bot, Support. Returns
+    None when no role is mentioned.
+
+    Heuristic limitations: patterns are ASCII-only approximations applied to
+    the lowercased text, and several are deliberately conservative (bare "top"
+    before a number is treated as a ranking; "soporte técnico" is tech
+    support; bare "bot" requires lane/adc context). A role the user clearly
+    means can still match nothing after normalization — this is a heuristic,
+    not a parser.
+    """
+    q = question.lower()
+    for canonical, patterns in _ROLE_PATTERNS:
+        for pat in patterns:
+            if re.search(pat, q):
+                return canonical
+    return None
+
+
+def keyword_candidates(question: str) -> List[str]:
+    """Extract deduped search keywords from a question.
+
+    Tokenizes lowercase, drops stopwords and expands synonyms so lexical
+    search shares vocabulary with the Spanish narrative chunks
+    (e.g. farm -> cs, muertes -> deaths). Pure-numeric tokens are dropped
+    (they are values, not search terms).
+    """
+    tokens = [
+        t for t in re.findall(r"[a-z0-9áéíóúüñ]+", question.lower())
+        if not t.isdigit()
+    ]
+    out = []
+    for tok in tokens:
+        if tok in _STOPWORDS:
+            continue
+        out.append(_SYNONYMS.get(tok, tok))
+    return list(dict.fromkeys(out))
 
 
 def _get_reports_docs(db, scan_limit: int):

@@ -6,3 +6,4 @@ env/
 reports/*
 logs/*
 tui/logs/
+chromadb_store/

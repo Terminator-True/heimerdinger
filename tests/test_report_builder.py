@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from modules.data.report_builder import ReportBuilder
+from modules.data.report_builder import ReportBuilder, render_match_snapshot
 
 
 class FakeCol(dict):
@@ -197,3 +197,74 @@ def test_build_match_report_error(tmp_path):
 
     assert report["status"] == "error"
     assert "detail" in report
+
+
+def test_render_match_snapshot_two_teams():
+    """One compact Spanish line per participant, grouped by team."""
+    doc = {
+        "metadata": {"matchId": "m1"},
+        "info": {
+            "participants": [
+                {"summonerName": "Alice", "teamId": 100, "individualPosition": "top",
+                 "championName": "Garen", "kills": 3, "deaths": 2, "assists": 5,
+                 "challenges": {"laneMinionsFirst10Minutes": 42, "goldPerMinute": 410,
+                                "damagePerMinute": 520},
+                 "visionScore": 21, "win": True},
+                {"summonerName": "Bob", "teamId": 200, "individualPosition": "jungle",
+                 "championName": "Lee Sin", "kills": 1, "deaths": 4, "assists": 2,
+                 "challenges": {"laneMinionsFirst10Minutes": 30, "goldPerMinute": 380,
+                                "damagePerMinute": 300},
+                 "visionScore": 15, "win": False},
+            ],
+            "teams": [{"teamId": 100}, {"teamId": 200}],
+        },
+    }
+
+    out = render_match_snapshot(doc)
+
+    assert out.index("Equipo 1:") < out.index("Equipo 2:")
+    assert "Jugador: Alice | Rol: TOP | Campeón: Garen | KDA: 3/2/5" in out
+    assert "CS@10: 42 | GPM: 410 | DPM: 520 | Visión: 21 | Victoria: Sí" in out
+    assert "Jugador: Bob | Rol: JUNGLE | Campeón: Lee Sin | KDA: 1/4/2" in out
+    assert "Victoria: No" in out
+
+
+def test_render_match_snapshot_empty():
+    """Empty participants produce an empty string."""
+    assert render_match_snapshot({"info": {"participants": []}}) == ""
+    assert render_match_snapshot({}) == ""
+
+
+def test_render_match_snapshot_keeps_participants_without_team_id():
+    """Participants missing teamId, or with a teamId absent from info.teams,
+    must still be rendered (one line each), not silently dropped."""
+    doc = {
+        "metadata": {"matchId": "m3"},
+        "info": {
+            "participants": [
+                {"summonerName": "Alice", "teamId": 100, "individualPosition": "top",
+                 "championName": "Garen", "kills": 3, "deaths": 2, "assists": 5,
+                 "challenges": {"laneMinionsFirst10Minutes": 42, "goldPerMinute": 410,
+                                "damagePerMinute": 520},
+                 "visionScore": 21, "win": True},
+                {"summonerName": "Bob", "individualPosition": "jungle",
+                 "championName": "Lee Sin", "kills": 1, "deaths": 4, "assists": 2,
+                 "challenges": {"laneMinionsFirst10Minutes": 30, "goldPerMinute": 380,
+                                "damagePerMinute": 300},
+                 "visionScore": 15, "win": False},
+                {"summonerName": "Carol", "teamId": 300, "individualPosition": "mid",
+                 "championName": "Ahri", "kills": 5, "deaths": 3, "assists": 7,
+                 "challenges": {"laneMinionsFirst10Minutes": 38, "goldPerMinute": 400,
+                                "damagePerMinute": 480},
+                 "visionScore": 18, "win": True},
+            ],
+            "teams": [{"teamId": 100}, {"teamId": 200}],
+        },
+    }
+
+    out = render_match_snapshot(doc)
+
+    assert "Jugador: Alice | Rol: TOP" in out
+    assert "Jugador: Bob | Rol: JUNGLE" in out  # no teamId → not dropped
+    assert "Jugador: Carol | Rol: MID" in out   # teamId 300 not in info.teams → not dropped
+    assert out.count("Jugador:") == 3  # every participant appears exactly once

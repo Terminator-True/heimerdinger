@@ -1,0 +1,13 @@
+# Dev MongoDB. docker compose reads .env automatically for ${VAR} substitution,
+# so the app URI in .env (mongodb://localhost:27017/heimerdinger) maps to this port.
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:

@@ -28,9 +28,8 @@ from modules.db.connection import get_db
 from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
 from modules.llm.question_classifier import classify_question
-from modules.llm.retrieval import retrieve_for_category
-from modules.data.report_builder import get_full_match, extract_rich_participant
-from modules.data.report_builder import ReportBuilder
+from modules.llm.retrieval import retrieve_for_category, detect_role, keyword_candidates
+from modules.data.report_builder import get_full_match, extract_rich_participant, render_match_snapshot
 from modules.coaching.prompt_builder import CoachingPromptBuilder
 
 
@@ -128,8 +127,26 @@ def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
     return {}
 
 
+def _role_where(question: str, caller_role: Optional[str]) -> Optional[Dict]:
+    """Chroma `where` filter narrowing retrieval to a role mentioned in the
+    question, or None when no role is detected or the caller already plays it.
+
+    Stored metadata is canonical (Top/Jungle/Mid/Bot/Support, normalized at
+    ingest), so the filter covers the canonical name plus case variants.
+    """
+    q_role = detect_role(question)
+    if q_role and q_role.lower() != (caller_role or "").lower():
+        return {"role": {"$in": [q_role, q_role.lower(), q_role.upper()]}}
+    return None
+
+
 def _semantic_passages(question: str, role: Optional[str], threshold: float) -> List[str]:
     """Query the vector store for passages relevant to `question`.
+
+    If the question mentions a role different from the caller's, the query is
+    narrowed with a role metadata filter. When no semantic hit beats the
+    distance threshold (or the store is empty), falls back to lexical keyword
+    search — the threshold does not apply to keyword hits.
 
     Returns [] on any failure (missing store, import error, empty collection)
     instead of raising — semantic retrieval is best-effort.
@@ -141,17 +158,22 @@ def _semantic_passages(question: str, role: Optional[str], threshold: float) -> 
         embedder = Embedder()
         store = VectorStore()
         q_emb = embedder.embed_texts([question])[0]
-        hits = store.query(q_emb, top_k=5)
+        where = _role_where(question, role)
+        if where is not None:
+            hits = store.query(q_emb, top_k=5, where=where)
+        else:
+            hits = store.query(q_emb, top_k=5)
         if not hits:
-            logger.warning("Semantic retrieval returned zero results (collection empty?)")
-            return []
+            logger.warning("Semantic retrieval returned zero results (where=%s, collection empty?)", where)
         passages = [
             h.get("document") or str(h.get("metadata"))
             for h in hits
             if h.get("distance") is None or h.get("distance") <= threshold
         ]
         if not passages:
-            logger.info("Semantic retrieval: all hits below confidence threshold (%.2f)", threshold)
+            logger.info("Semantic retrieval: below threshold (%.2f), trying keyword fallback", threshold)
+            kw_hits = store.search_keywords(keyword_candidates(question), top_k=5, where=where)
+            passages = [h.get("document") or str(h.get("metadata")) for h in kw_hits]
         return passages
     except Exception:
         logger.exception("Semantic retrieval failed")
@@ -166,11 +188,22 @@ def ask_coach(question: str,
               role: Optional[str] = None,
               model: str = "llama3.1:8b",
               last_match: bool = False,
-              lang: str = "es"):
-    """Entry point: classify, retrieve, format prompt, call Ollama."""
+              lang: str = "es",
+              history: Optional[List[Dict]] = None):
+    """Entry point: classify, retrieve, format prompt, call Ollama.
+
+    Args:
+        question: the user's message.
+        role: optional role filter (Top, Jungle, ...).
+        model: Ollama model name.
+        last_match: use only the most recent match as context.
+        lang: language for the assistant's reply.
+        history: optional list of {"role", "content"} previous turns.
+    """
     logger = get_logger()
     db = get_db()
     pe = PromptEngineer()
+    snapshot = None
 
     # 1. Classify question
     cat = classify_question(question)
@@ -195,10 +228,23 @@ def ask_coach(question: str,
             try:
                 from modules.embeddings.embedder import Embedder
                 from modules.embeddings.store import VectorStore
+                embeddings_config = get_embeddings_config()
+                threshold = float(embeddings_config.get("distance_threshold", 1.0))
                 embedder = Embedder()
                 store = VectorStore()
                 q_emb = embedder.embed_texts([question])[0]
-                hits = store.query(q_emb, top_k=5)
+                where = _role_where(question, role)
+                if where is not None:
+                    hits = store.query(q_emb, top_k=5, where=where)
+                else:
+                    hits = store.query(q_emb, top_k=5)
+                hits = [
+                    h for h in hits
+                    if h.get("distance") is None or h.get("distance") <= threshold
+                ]
+                if not hits:
+                    logger.warning("Semantic retrieval returned zero results (where=%s, collection empty?)", where)
+                    hits = store.search_keywords(keyword_candidates(question), top_k=5, where=where)
                 for h in hits:
                     passages.append(h.get('document') or str(h.get('metadata')))
             except Exception:
@@ -229,12 +275,15 @@ def ask_coach(question: str,
         # Fetch last-match data for schema-driven coaching prompt
         last = _build_last_match_report(db, role or "")
         if last and last.get("full_match"):
+            snapshot = render_match_snapshot(last["full_match"])
             try:
                 cp_builder = CoachingPromptBuilder()
                 prompt = cp_builder.build_prompt(
                     match_doc=last["full_match"],
                     puuid=last["puuid"],
                     role=role,
+                    match_snapshot=snapshot,
+                    history=history,
                 )
                 logger.info("Schema-driven prompt built (%d chars)", len(prompt))
             except Exception as e:
@@ -283,6 +332,8 @@ def ask_coach(question: str,
             output_format="text",
             game_summary=game_summary,
             important_points=important_points,
+            match_snapshot=snapshot,
+            history=history,
         )
 
     # 5. Call Ollama
@@ -290,6 +341,8 @@ def ask_coach(question: str,
                 model, len(prompt), len(passages))
     client = OllamaClient()
     resp = client.generate(prompt=prompt, model=model)
+    out_text = resp["response"] if isinstance(resp, dict) else resp
+    print(out_text)
 
     # 6. Persist prompt+response
     try:
@@ -311,7 +364,7 @@ def ask_coach(question: str,
     except Exception:
         logger.exception("Failed to save prompt+response")
 
-    print(resp["response"] if isinstance(resp, dict) else resp)
+    return out_text
 
 
 def main():

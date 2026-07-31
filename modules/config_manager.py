@@ -39,7 +39,7 @@ def get_team(team_name_or_path: str) -> Dict[str, Any]:
 _EMBEDDINGS_DEFAULTS: Dict[str, Any] = {
     "persist_directory": "chromadb_store",
     "collection_name": "heimerdinger",
-    "embedding_model": "all-MiniLM-L6-v2",
+    "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
     "distance_threshold": 1.0,
 }
 
