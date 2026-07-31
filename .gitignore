@@ -7,3 +7,4 @@ reports/*
 logs/*
 tui/logs/
 chromadb_store/
+cache/

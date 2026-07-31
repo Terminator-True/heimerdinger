@@ -63,3 +63,24 @@ def get_embeddings_config() -> Dict[str, Any]:
         )
 
     return config
+
+
+_DDRAGON_DEFAULTS: Dict[str, Any] = {
+    "language": "es_ES",
+    "cache_dir": "cache/riot_items",
+}
+
+
+def get_ddragon_config() -> Dict[str, Any]:
+    """Return Data Dragon static-data config.
+
+    Reads config/ddragon.json if present, else falls back to hardcoded
+    defaults (same convention as get_embeddings_config).
+    """
+    config = dict(_DDRAGON_DEFAULTS)
+    path = CONFIG_DIR / "ddragon.json"
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as fh:
+            config.update(json.load(fh))
+
+    return config

@@ -163,6 +163,8 @@ def test_last_match_true_path_unaffected(monkeypatch, patched_ask_coach):
     calls = {}
 
     class FakeCoachingPromptBuilder:
+        resolution_status = "skipped"
+
         def build_prompt(self, match_doc, puuid, role, match_snapshot=None, history=None):
             calls["called"] = True
             calls["kwargs"] = {"match_doc": match_doc, "puuid": puuid, "role": role,

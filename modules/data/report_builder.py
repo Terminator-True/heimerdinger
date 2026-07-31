@@ -101,6 +101,29 @@ def render_match_snapshot(full_match_doc: Dict[str, Any]) -> str:
     return "\n".join(blocks)
 
 
+def extract_team_composition(match_doc: Dict[str, Any]) -> Dict[int, List[str]]:
+    """Map teamId -> champion display names from the raw match doc.
+
+    Uses championName (already a display name in match-v5) so no extra
+    Data Dragon call is needed for composition. Participants missing a
+    teamId or championName are skipped.
+    """
+    if not match_doc:
+        return {}
+    info = match_doc.get("info") or {}
+    participants: List[Dict] = info.get("participants") or []
+
+    by_team: Dict[int, List[str]] = {}
+    for p in participants:
+        tid = p.get("teamId")
+        if tid is None:
+            continue
+        name = p.get("championName")
+        if name:
+            by_team.setdefault(tid, []).append(name)
+    return by_team
+
+
 def extract_rich_participant(full_match_doc: Dict[str, Any], player_puuid: str) -> Dict[str, Any]:
     """Extract ALL coaching-relevant fields organized by category.
 

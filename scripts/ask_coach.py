@@ -285,7 +285,8 @@ def ask_coach(question: str,
                     match_snapshot=snapshot,
                     history=history,
                 )
-                logger.info("Schema-driven prompt built (%d chars)", len(prompt))
+                logger.info("Schema-driven prompt built (%d chars; ddragon=%s)",
+                            len(prompt), cp_builder.resolution_status)
             except Exception as e:
                 logger.exception("CoachingPromptBuilder failed, falling back: %s", e)
 
