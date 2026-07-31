@@ -1,5 +1,5 @@
 from pymongo.collection import Collection
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from modules.logger import get_logger
@@ -88,5 +88,5 @@ class MatchesRepository:
 
         # Use upsert to keep idempotency
         filter_q = {"player_puuid": player_puuid, "matchId": match_id}
-        update_q = {"$set": doc, "$setOnInsert": {"created_at": datetime.utcnow()}}
+        update_q = {"$set": doc, "$setOnInsert": {"created_at": datetime.now(timezone.utc)}}
         pm_col.update_one(filter_q, update_q, upsert=True)

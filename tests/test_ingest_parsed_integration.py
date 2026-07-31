@@ -46,7 +46,7 @@ def test_upsert_parsed_player_match_integration():
     fake_match = {
         "metadata": {"matchId": "M-1"},
         "info": {
-            "gameStartTimestamp": int(datetime.datetime.utcnow().timestamp() * 1000),
+            "gameStartTimestamp": int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000),
             "gameDuration": 1200,
             "participants": [
                 {

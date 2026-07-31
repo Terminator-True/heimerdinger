@@ -14,7 +14,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -295,7 +295,7 @@ def ask_coach(question: str,
     try:
         out_dir = os.path.join("reports", "ollama_responses")
         os.makedirs(out_dir, exist_ok=True)
-        ts = datetime.utcnow().isoformat().replace(":", "-")
+        ts = datetime.now(timezone.utc).isoformat().replace(":", "-")
         fname = os.path.join(out_dir, f"ask_coach_{ts}.json")
         with open(fname, "w", encoding="utf-8") as fh:
             json.dump({
