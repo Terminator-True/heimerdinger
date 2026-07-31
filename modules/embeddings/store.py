@@ -34,7 +34,9 @@ class VectorStore:
 
     def upsert_docs(self, ids: List[str], texts: List[str], embeddings: List[List[float]], metadatas: Optional[List[Dict[str, Any]]] = None):
         col = self.ensure_collection()
-        col.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas or [{}] * len(ids))
+        # chromadb>=1.0 rejects empty metadata dicts, so fall back to a
+        # non-empty placeholder instead of {}.
+        col.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas or [{"source": "unknown"}] * len(ids))
 
     def query(self, query_embedding: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
         col = self.ensure_collection()
