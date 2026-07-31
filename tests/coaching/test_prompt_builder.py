@@ -1,6 +1,8 @@
 """Tests for CoachingPromptBuilder — schema-driven prompt generation."""
 
 import copy
+import shutil
+from pathlib import Path
 
 import httpx
 import pytest
@@ -67,6 +69,11 @@ def ddragon_net():
             return_value=httpx.Response(200, json=ITEM_JSON)
         )
         yield {"versions": versions, "items": items}
+        # Default-client tests may have written mock data into the repo cache;
+        # clean it so real --last-match runs never read fake item names.
+        repo_cache = Path("cache") / "riot_items"
+        if repo_cache.exists():
+            shutil.rmtree(repo_cache, ignore_errors=True)
 
 
 def _client(tmp_path, version: str = "14.20.1") -> DataDragonClient:
