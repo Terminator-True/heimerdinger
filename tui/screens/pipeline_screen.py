@@ -1,4 +1,8 @@
-"""Pipeline screen — orchestrate the full ingest → report → LLM pipeline."""
+"""Pipeline screen — orchestrate the report → LLM pipeline over already-ingested data.
+
+Ingest runs automatically via scripts/auto_ingest_loop.py; this pipeline only
+reads what is already in Mongo.
+"""
 
 import os
 import time
@@ -22,9 +26,8 @@ class PipelineScreen(Screen):
 
     BINDINGS = [
         Binding("1", "app.goto_dashboard", "Dashboard", priority=True),
-        Binding("2", "app.goto_ingest", "Ingestar", priority=True),
-        Binding("3", "app.goto_coach", "Coach", priority=True),
-        Binding("4", "app.goto_pipeline", "Pipeline", priority=True),
+        Binding("2", "app.goto_coach", "Coach", priority=True),
+        Binding("3", "app.goto_pipeline", "Pipeline", priority=True),
         Binding("escape", "go_back", "Volver", priority=True),
         Binding("ctrl+l", "clear_log", "Limpiar log"),
     ]
@@ -47,8 +50,6 @@ class PipelineScreen(Screen):
                     value="config/team.json",
                     id="team-select",
                 )
-                yield Label("Partidas por jugador")
-                yield Input(value="5", id="games-count", type="integer")
                 yield Label("LLM calls por jugador")
                 yield Input(value="1", id="llm-count", type="integer")
                 yield Label("Modelo")
@@ -89,14 +90,9 @@ class PipelineScreen(Screen):
             return
 
         team_file = self.query_one("#team-select", Select).value
-        games_str = self.query_one("#games-count", Input).value.strip()
         llm_str = self.query_one("#llm-count", Input).value.strip()
         model = self.query_one("#pipeline-model", Select).value
 
-        try:
-            games = int(games_str) if games_str else 5
-        except ValueError:
-            games = 5
         try:
             max_llm = int(llm_str) if llm_str else 1
         except ValueError:
@@ -113,11 +109,11 @@ class PipelineScreen(Screen):
         log = self.query_one("#pipeline-log", RichLog)
         log.clear()
 
-        self._run_pipeline(str(team_file), games, str(model), max_llm)
+        self._run_pipeline(str(team_file), str(model), max_llm)
 
     @work(thread=True, exit_on_error=False)
     async def _run_pipeline(
-        self, team_file: str, games: int, model: str, max_llm: int
+        self, team_file: str, model: str, max_llm: int
     ) -> None:
         """Execute the full pipeline in a worker thread."""
         import sys
@@ -127,7 +123,6 @@ class PipelineScreen(Screen):
             sys.path.insert(0, repo)
 
         from modules.config_manager import get_team
-        from modules.ingest.lib import ingest_player
         from modules.data.report_builder import ReportBuilder
         from modules.llm.llm_advisor import LLMAdvisor
         from modules.db.connection import get_db
@@ -164,7 +159,9 @@ class PipelineScreen(Screen):
             return
 
         total_players = len(team)
-        update_status(f"Pipeline iniciado — {total_players} jugadores, {games} partidas c/u")
+        update_status(f"Pipeline iniciado — {total_players} jugadores")
+
+        pm_col = db.get_collection("player_matches")
 
         for idx, player in enumerate(team):
             if self._cancelled:
@@ -180,21 +177,18 @@ class PipelineScreen(Screen):
             update_player_progress(f"▶ Procesando {riotid} ({role}) [{idx+1}/{total_players}]")
             log_msg(f"\n── {riotid} ({role}) ──", "bold gold")
 
-            # 1. Ingest
-            log_msg("  Ingest...", "dim")
-            try:
-                result = ingest_player(riotid, count=games, region="europe")
-                saved = result.get("matches_saved", 0)
-                skipped = result.get("matches_skipped", 0)
-                log_msg(f"  ✓ Ingest completado ({saved} nuevas, {skipped} existentes)", "green")
-            except Exception as exc:
-                log_msg(f"  ✗ Error en ingest: {exc}", "red")
+            # 1. Resolve puuid from already-ingested data
+            name = riotid.split("#", 1)[0].strip()
+            doc = pm_col.find_one({"parsed_metrics.summonerName": name}, {"player_puuid": 1})
+            puuid = doc.get("player_puuid") if doc else None
+            if not puuid:
+                log_msg(f"  ✗ Sin datos ingestados para {riotid}", "red")
                 continue
 
             # 2. Build report
             log_msg("  Generando reporte...", "dim")
             try:
-                report = rb.build_player_report(result.get("puuid", ""), db)
+                report = rb.build_player_report(puuid, db)
                 log_msg("  ✓ Reporte generado", "green")
             except Exception as exc:
                 log_msg(f"  ⚠ Reporte no generado: {exc}", "yellow")
