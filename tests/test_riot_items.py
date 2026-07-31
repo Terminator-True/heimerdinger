@@ -5,6 +5,7 @@ import httpx
 import pytest
 import respx
 
+from modules import config_manager
 from modules.riot_items.data_dragon import DataDragonClient
 from modules.riot_items.item_cache import ItemCache
 from modules.riot_items.models import (
@@ -347,3 +348,30 @@ def test_package_exports():
     assert riot_items.ItemGold is models.ItemGold
     assert riot_items.ItemImage is models.ItemImage
     assert riot_items.ItemData is models.ItemData
+
+
+# ---------------------------------------------------------------------------
+# ddragon config (task 1.5)
+# ---------------------------------------------------------------------------
+
+
+class TestDdragonConfig:
+    def test_defaults(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(config_manager, "CONFIG_DIR", tmp_path)
+        cfg = config_manager.get_ddragon_config()
+        assert cfg["language"] == "es_ES"
+        assert cfg["cache_dir"] == "cache/riot_items"
+
+    def test_override_merge(self, monkeypatch, tmp_path):
+        (tmp_path / "ddragon.json").write_text(
+            json.dumps({"language": "en_US"}), encoding="utf-8"
+        )
+        monkeypatch.setattr(config_manager, "CONFIG_DIR", tmp_path)
+        cfg = config_manager.get_ddragon_config()
+        assert cfg["language"] == "en_US"
+        assert cfg["cache_dir"] == "cache/riot_items"
+
+    def test_missing_config_file_still_defaults(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(config_manager, "CONFIG_DIR", tmp_path)
+        cfg = config_manager.get_ddragon_config()
+        assert set(cfg) == {"language", "cache_dir"}
