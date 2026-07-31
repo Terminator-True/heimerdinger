@@ -177,6 +177,34 @@ Builder de prompts desde `config/coaching_schema.json`:
 | `ask_coach.py` | Coach con clasificación + retrieval + Ollama |
 | `pipeline_runner.py` | Pipeline completo con flags (--per-match, --skip-fetch, --model) |
 | `seed_vector_store.py` | Seed de ChromaDB desde datos existentes |
+| `auto_ingest_loop.py` | Loop de ingesta horaria automática (systemd/nohup) |
+
+---
+
+## Auto-ingest loop (producción)
+
+Proceso de larga duración que ejecuta un ciclo de ingesta por hora (configurable) para todo `config/team.json`, sin dependencias nuevas (solo stdlib).
+
+**nohup:**
+```bash
+nohup python -m scripts.auto_ingest_loop --team team.json > logs/auto_ingest.out 2>&1 &
+```
+
+**systemd unit (ejemplo mínimo):**
+```ini
+[Unit]
+Description=Heimerdinger auto-ingest loop
+
+[Service]
+WorkingDirectory=/path/to/heimerdinger
+ExecStart=/path/to/heimerdinger/env/bin/python -m scripts.auto_ingest_loop --team team.json
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Para testing local sin esperar 1h, usar `--interval 10` (o la env var `AUTO_INGEST_INTERVAL_SECONDS`).
 
 ---
 

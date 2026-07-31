@@ -24,9 +24,8 @@ class CoachScreen(Screen):
 
     BINDINGS = [
         Binding("1", "app.goto_dashboard", "Dashboard", priority=True),
-        Binding("2", "app.goto_ingest", "Ingestar", priority=True),
-        Binding("3", "app.goto_coach", "Coach", priority=True),
-        Binding("4", "app.goto_pipeline", "Pipeline", priority=True),
+        Binding("2", "app.goto_coach", "Coach", priority=True),
+        Binding("3", "app.goto_pipeline", "Pipeline", priority=True),
         Binding("escape", "go_back", "Volver", priority=True),
         Binding("ctrl+l", "clear_chat", "Limpiar chat"),
         Binding("ctrl+p", "change_player", "Cambiar jugador"),

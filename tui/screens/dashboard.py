@@ -4,10 +4,9 @@ Matches the spec layout:
 ┌─────────────────────────────────────────────────────────┐
 │ SIDEBAR       │  RESUMEN DEL EQUIPO     patch 14.x      │
 │ ▶ Dashboard   ├──────────┬──────────┬──────────┬───────┤
-│   Ingestar    │ W/L RATE │ AVG KDA  │ AVG GPM  │ VISION│
-│   Coach       │   68%    │   4.2    │   487    │  38   │
-│   Pipeline    ├────────────────────────────────────────┤
-│ ────────────  │ EQUIPO — últimas N partidas            │
+│   Coach       │ W/L RATE │ AVG KDA  │ AVG GPM  │ VISION│
+│   Pipeline    │   68%    │   4.2    │   487    │  38   │
+│ ────────────  ├────────────────────────────────────────┤
 │ CONFIG        │ Nick        Rol  KDA   GPM   WR        │
 │  .env  ✓      │ ───────────────────────────────────── │
 │  Ollama ✓     │ TR Termi…   Top  5.1   501   70%       │
@@ -43,9 +42,8 @@ class DashboardScreen(Screen):
         ("f5", "refresh", "Refrescar"),
         ("escape", "go_back", "Volver"),
         ("1", "goto_dashboard", "Dashboard"),
-        ("2", "goto_ingest", "Ingestar"),
-        ("3", "goto_coach", "Coach"),
-        ("4", "goto_pipeline", "Pipeline"),
+        ("2", "goto_coach", "Coach"),
+        ("3", "goto_pipeline", "Pipeline"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -56,7 +54,6 @@ class DashboardScreen(Screen):
                 yield Static("  ⚔  HEIMDINGER", classes="nav-title")
                 yield Static("")  # spacer
                 yield Static("▶ Dashboard", classes="nav-item active")
-                yield Static("  Ingestar",   classes="nav-item")
                 yield Static("  Coach",      classes="nav-item")
                 yield Static("  Pipeline",   classes="nav-item")
                 yield Static("", id="sidebar-spacer")
@@ -349,9 +346,6 @@ class DashboardScreen(Screen):
 
     def action_goto_dashboard(self) -> None:
         pass  # already here
-
-    def action_goto_ingest(self) -> None:
-        self.app.switch_screen("ingest")
 
     def action_goto_coach(self) -> None:
         self.app.switch_screen("coach")

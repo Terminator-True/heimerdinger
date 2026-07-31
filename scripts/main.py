@@ -11,11 +11,11 @@ Uso:
     python scripts/main.py
 
 Opciones del menú:
-    1. Ingestar un solo jugador (por Riot ID)
-    2. Ingestar un equipo (desde config/team.json)
-    3. Ask the Coach — modo interactivo
-    4. Pipeline completo (ingest + reportes)
-    5. Salir
+    1. Ask the Coach — modo interactivo
+    2. Pipeline completo (reportes + LLM sobre datos ya ingestados)
+    3. Salir
+
+La ingesta de datos corre automáticamente vía scripts/auto_ingest_loop.py.
 """
 import os
 import sys
@@ -43,91 +43,6 @@ console = Console()
 # ======================================================================
 #  helpers
 # ======================================================================
-
-def _check_riot_key() -> bool:
-    """Warn and return False if RIOT_API_KEY is missing."""
-    if not os.getenv("RIOT_API_KEY"):
-        console.print("[yellow]⚠  RIOT_API_KEY no está configurada en .env[/yellow]")
-        console.print("  Creá un archivo .env con: RIOT_API_KEY=tu_key")
-        return False
-    return True
-
-
-def _run_ingest_one():
-    """Ingestar un solo jugador por Riot ID."""
-    console.print(Panel.fit("[bold]Ingestar un jugador[/bold]", border_style="cyan"))
-    if not _check_riot_key():
-        return
-
-    from modules.ingest.lib import ingest_player
-
-    riotid = Prompt.ask("[bold]Riot ID[/bold]", default="TR Terminator#1998")
-    count = IntPrompt.ask("Partidas a ingestar", default=5)
-    region = Prompt.ask("Región", default=os.getenv("REGION", "europe"))
-    region_rep = Prompt.ask("Región (segundo parámetro)", default="europe")
-
-    console.print(f"\nIngestando {riotid} (hasta {count} partidas)...")
-    try:
-        summary = ingest_player(
-            riotid=riotid, count=count,
-            region=region, region_rep=region_rep,
-        )
-        console.print(
-            f"[green]✓[/green] Hecho. "
-            f"PUUID: {summary.get('puuid')} "
-            f"fetched={summary.get('matches_fetched')} "
-            f"saved={summary.get('matches_saved')}"
-        )
-    except Exception as exc:
-        from httpx import HTTPStatusError
-        if isinstance(exc, HTTPStatusError):
-            status = exc.response.status_code if exc.response is not None else None
-            msg = {401: "401 Unauthorized — revisá RIOT_API_KEY en .env",
-                   403: "403 Forbidden — la API key no tiene acceso",
-                   404: "404 Not Found — ¿el Riot ID es correcto?",
-                   429: "429 Rate limit excedido — esperá un momento"}.get(status, f"HTTP {status}")
-            console.print(f"[red]{msg}[/red]")
-        else:
-            console.print(f"[red]Error: {exc}[/red]")
-
-
-def _run_ingest_team():
-    """Ingestar un equipo desde config/team.json."""
-    console.print(Panel.fit("[bold]Ingestar un equipo[/bold]", border_style="cyan"))
-    if not _check_riot_key():
-        return
-
-    from modules.config_manager import get_team
-    from modules.ingest.lib import ingest_player
-    import traceback
-
-    team_path = Prompt.ask("Archivo del equipo", default="config/team.json")
-    games = IntPrompt.ask("Partidas por jugador", default=5)
-    region = Prompt.ask("Región", default=os.getenv("REGION", "europe"))
-
-    try:
-        team = get_team(team_path)
-    except FileNotFoundError:
-        console.print(f"[red]Archivo no encontrado: {team_path}[/red]")
-        return
-
-    console.print(f"\nIngestando {len(team)} jugadores...")
-    ok = 0
-    for player in team:
-        riotid = player.get("riotid")
-        if not riotid:
-            continue
-        console.print(f"  → {riotid}...", end="")
-        try:
-            summary = ingest_player(riotid=riotid, count=games, region=region)
-            console.print(f" [green]✓[/green] ({summary.get('matches_saved')} partidas)")
-            ok += 1
-        except Exception as exc:
-            console.print(f" [red]✗ {exc}[/red]")
-            console.print(f"  [dim]{traceback.format_exc()[:200]}[/dim]")
-
-    console.print(f"\n[green]Listo: {ok}/{len(team)} jugadores ingestados.[/green]")
-
 
 def _run_coach_interactive():
     """Modo interactivo: preguntar al coach en un loop.
@@ -178,25 +93,21 @@ def _run_coach_interactive():
 
 
 def _run_pipeline():
-    """Correr el pipeline completo."""
+    """Correr el pipeline completo sobre datos ya ingestados."""
     console.print(Panel.fit("[bold]Pipeline completo[/bold]", border_style="blue"))
 
     from modules.config_manager import get_team
-    from modules.ingest.lib import ingest_player
     from modules.data.report_builder import ReportBuilder
     from modules.db.connection import get_db
     from modules.llm.llm_advisor import LLMAdvisor
 
     team_path = Prompt.ask("Archivo del equipo", default="config/team.json")
-    games = IntPrompt.ask("Partidas por jugador", default=5)
-    region = Prompt.ask("Región", default=os.getenv("REGION", "europe"))
     per_match = Confirm.ask("¿Reportes por partida (vs agregados)?", default=False)
     max_llm = IntPrompt.ask(
         "Máx llamadas a LLaMA por jugador (0 = deshabilitado)",
         default=0,
     )
     model = Prompt.ask("Modelo LLaMA", default="llama3.1:8b")
-    skip_fetch = Confirm.ask("¿Saltar fetch (usar datos ya descargados)?", default=False)
 
     try:
         team = get_team(team_path)
@@ -207,6 +118,7 @@ def _run_pipeline():
     db = get_db()
     rb = ReportBuilder()
     advisor = LLMAdvisor() if max_llm > 0 else None
+    pm_col = db.get_collection("player_matches")
 
     for p in team:
         riotid = p.get("riotid")
@@ -216,14 +128,17 @@ def _run_pipeline():
 
         console.print(f"\n[bold]── {riotid} ({role}) ──[/bold]")
 
-        # 1. Ingest
-        console.print("  Ingestion...", end="")
-        res = ingest_player(riotid, count=games, region=region, skip_fetch=skip_fetch)
-        puuid = res.get("puuid")
+        # 1. Resolve puuid from already-ingested data
+        name = riotid.split("#", 1)[0].strip()
+        try:
+            doc = pm_col.find_one({"parsed_metrics.summonerName": name}, {"player_puuid": 1})
+        except Exception:
+            doc = None
+        puuid = doc.get("player_puuid") if doc else None
         if not puuid:
-            console.print(f" [yellow]No se pudo resolver PUUID para {riotid}[/yellow]")
+            console.print(f"  [yellow]Sin datos ingestados para {riotid}[/yellow]")
             continue
-        console.print(f" [green]✓[/green] PUUID={puuid}")
+        console.print(f"  [green]✓[/green] PUUID={puuid}")
 
         # 2. Reports
         report = None
@@ -281,15 +196,13 @@ def show_menu() -> int:
     table = Table(show_header=False, box=None, padding=(0, 3))
     table.add_column("Opción", style="bold yellow", width=8)
     table.add_column("Acción", style="white")
-    table.add_row("1", "Ingestar un solo jugador")
-    table.add_row("2", "Ingestar un equipo (desde archivo)")
-    table.add_row("3", "Ask the Coach — modo interactivo")
-    table.add_row("4", "Pipeline completo (ingest + reportes)")
+    table.add_row("1", "Ask the Coach — modo interactivo")
+    table.add_row("2", "Pipeline completo (reportes + LLM)")
     table.add_row("", "")
-    table.add_row("5", "[dim]Salir[/dim]")
+    table.add_row("3", "[dim]Salir[/dim]")
 
     console.print(table)
-    return IntPrompt.ask("[bold green]➤ Seleccioná una opción", default=5)
+    return IntPrompt.ask("[bold green]➤ Seleccioná una opción", default=3)
 
 
 # ======================================================================
@@ -307,20 +220,16 @@ def main():
         console.print()
 
         if choice == 1:
-            _run_ingest_one()
-        elif choice == 2:
-            _run_ingest_team()
-        elif choice == 3:
             _run_coach_interactive()
-        elif choice == 4:
+        elif choice == 2:
             _run_pipeline()
-        elif choice == 5:
+        elif choice == 3:
             console.print("[dim]Nos vemos![/dim]")
             break
         else:
             console.print("[red]Opción inválida[/red]")
 
-        if choice in (1, 2, 3, 4):
+        if choice in (1, 2):
             console.print("\n[dim]Presioná Enter para volver al menú...[/dim]", end="")
             try:
                 input()

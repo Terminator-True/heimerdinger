@@ -23,7 +23,6 @@ from textual.widgets import Header, Footer, Static, Placeholder
 from textual.containers import Vertical, Horizontal
 
 from tui.screens.dashboard import DashboardScreen
-from tui.screens.ingest_screen import IngestScreen
 from tui.screens.player_screen import PlayerScreen
 from tui.screens.coach_screen import CoachScreen
 from tui.screens.pipeline_screen import PipelineScreen
@@ -40,15 +39,13 @@ class HeimdingertApp(App):
         Binding("f1", "show_help", "Ayuda", priority=True),
         Binding("f5", "refresh", "Refrescar", priority=True),
         Binding("1", "goto_dashboard", "Dashboard", priority=True),
-        Binding("2", "goto_ingest", "Ingestar", priority=True),
-        Binding("3", "goto_coach", "Coach", priority=True),
-        Binding("4", "goto_pipeline", "Pipeline", priority=True),
+        Binding("2", "goto_coach", "Coach", priority=True),
+        Binding("3", "goto_pipeline", "Pipeline", priority=True),
         Binding("escape", "go_back", "Volver", priority=True),
     ]
 
     SCREENS = {
         "dashboard": DashboardScreen,
-        "ingest": IngestScreen,
         "coach": CoachScreen,
         "pipeline": PipelineScreen,
     }
@@ -84,9 +81,6 @@ class HeimdingertApp(App):
 
     def action_goto_dashboard(self) -> None:
         self.switch_screen("dashboard")
-
-    def action_goto_ingest(self) -> None:
-        self.switch_screen("ingest")
 
     def action_goto_coach(self) -> None:
         self.switch_screen("coach")
@@ -124,9 +118,8 @@ class HelpScreen(Screen):
         help_text.append("\n  ⚔  HEIMDINGER — Atajos de teclado\n\n", style="bold #C89B3C")
         help_text.append("  ─── Navegación ───\n", style="#8892A4")
         help_text.append("   1     Dashboard\n")
-        help_text.append("   2     Ingestar jugador\n")
-        help_text.append("   3     Ask the Coach\n")
-        help_text.append("   4     Pipeline completo\n")
+        help_text.append("   2     Ask the Coach\n")
+        help_text.append("   3     Pipeline completo\n")
         help_text.append("\n  ─── Acciones ───\n", style="#8892A4")
         help_text.append("   F1    Esta ayuda\n")
         help_text.append("   F5    Refrescar pantalla\n")
