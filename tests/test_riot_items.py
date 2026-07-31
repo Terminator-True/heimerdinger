@@ -5,6 +5,7 @@ import httpx
 import pytest
 import respx
 
+from modules.riot_items.item_cache import ItemCache
 from modules.riot_items.models import (
     Item,
     ItemData,
@@ -124,3 +125,54 @@ class TestModels:
         assert img.group == "item"
         assert img.x == 0
         assert img.w == 0
+
+
+# ---------------------------------------------------------------------------
+# item cache (task 1.2)
+# ---------------------------------------------------------------------------
+
+
+class TestItemCache:
+    def test_round_trip(self, tmp_path):
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
+        items = {"3866": item_from_dict(ITEM_3866), "1001": Item(name="Zapato Rápido")}
+        cache.save(items)
+        assert cache.load() == items
+
+    def test_save_creates_parent_dirs(self, tmp_path):
+        cache_dir = tmp_path / "nested" / "riot_items"
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=cache_dir)
+        cache.save({"3866": item_from_dict(ITEM_3866)})
+        assert cache.exists()
+
+    def test_missing_returns_none(self, tmp_path):
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
+        assert cache.load() is None
+        assert cache.exists() is False
+
+    def test_corrupt_json_returns_none(self, tmp_path):
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
+        cache_file = tmp_path / "14.20.1_es_ES.json"
+        cache_file.write_text("{not valid json", encoding="utf-8")
+        assert cache.load() is None
+
+    def test_wrong_shape_json_returns_none(self, tmp_path):
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
+        cache_file = tmp_path / "14.20.1_es_ES.json"
+        cache_file.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+        assert cache.load() is None
+        cache_file.write_text(json.dumps({"3866": "not a dict"}), encoding="utf-8")
+        assert cache.load() is None
+
+    def test_clear(self, tmp_path):
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
+        cache.save({"3866": item_from_dict(ITEM_3866)})
+        assert cache.exists()
+        cache.clear()
+        assert cache.exists() is False
+        assert cache.load() is None
+
+    def test_version_locale_filename(self, tmp_path):
+        cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
+        cache.save({"3866": item_from_dict(ITEM_3866)})
+        assert (tmp_path / "14.20.1_es_ES.json").exists()
