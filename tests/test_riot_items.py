@@ -5,6 +5,7 @@ import httpx
 import pytest
 import respx
 
+from modules.riot_items.data_dragon import DataDragonClient
 from modules.riot_items.item_cache import ItemCache
 from modules.riot_items.models import (
     Item,
@@ -176,3 +177,173 @@ class TestItemCache:
         cache = ItemCache("14.20.1", "es_ES", cache_dir=tmp_path)
         cache.save({"3866": item_from_dict(ITEM_3866)})
         assert (tmp_path / "14.20.1_es_ES.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# data dragon client (task 1.3)
+# ---------------------------------------------------------------------------
+
+VERSIONS_URL = DataDragonClient.VERSIONS_URL
+ITEM_URL = f"{DataDragonClient.BASE_URL}/14.20.1/data/es_ES/item.json"
+
+
+class TestDataDragonClient:
+    def test_constructor_makes_no_network_calls(self):
+        with respx.mock as rsps:
+            DataDragonClient(locale="es_ES")
+            assert rsps.calls == []
+
+    def test_get_latest_version_uses_one_get(self):
+        with respx.mock as rsps:
+            route = rsps.get(VERSIONS_URL).respond(200, json=["15.4.1", "15.3.1"])
+            client = DataDragonClient()
+            assert client.get_latest_version() == "15.4.1"
+            assert route.call_count == 1
+
+    def test_resolve_version_exact_patch(self):
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["15.4.1", "14.20.1", "14.19.1"])
+            client = DataDragonClient()
+            assert client.resolve_version("14.20.568.9039") == "14.20.1"
+
+    def test_resolve_version_nearest_lower_patch(self):
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["15.4.1", "15.3.1", "15.2.1"])
+            client = DataDragonClient()
+            assert client.resolve_version("15.3.999") == "15.3.1"
+
+    def test_resolve_version_fallback_to_latest(self):
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["15.4.1", "15.3.1"])
+            client = DataDragonClient()
+            assert client.resolve_version("1.0.1") == "15.4.1"
+
+    def test_versions_memoized_in_memory(self):
+        with respx.mock as rsps:
+            route = rsps.get(VERSIONS_URL).respond(
+                200, json=["15.4.1", "15.3.1", "14.20.1"]
+            )
+            client = DataDragonClient()
+            client.resolve_version("14.20.568.9039")
+            client.resolve_version("15.3.999")
+            assert route.call_count == 1
+
+    def test_get_item_by_id_and_special_ids(self, tmp_path):
+        body = item_json_body("14.20.1", (3866, ITEM_3866))
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["14.20.1"])
+            rsps.get(ITEM_URL).respond(200, json=body)
+            client = DataDragonClient(cache_dir=tmp_path)
+            item = client.get_item_by_id(3866)
+            assert item is not None
+            assert item.name == "Guantes de Bruja"
+            assert item.gold.total == 1100
+            assert client.get_item_by_id(0) is None
+            assert client.get_item_by_id(9999) is None
+
+    def test_get_items_by_ids(self, tmp_path):
+        body = item_json_body(
+            "14.20.1",
+            (3866, ITEM_3866),
+            (2524, {"name": "Filo del Infinito", "gold": {"total": 3400}}),
+        )
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["14.20.1"])
+            rsps.get(ITEM_URL).respond(200, json=body)
+            client = DataDragonClient(cache_dir=tmp_path)
+            result = client.get_items_by_ids([3866, 2524, 9999, 0])
+            assert result[3866].name == "Guantes de Bruja"
+            assert result[2524].gold.total == 3400
+            assert result[9999] is None
+            assert result[0] is None
+
+    def test_in_memory_cache_no_refetch(self, tmp_path):
+        body = item_json_body("14.20.1", (3866, ITEM_3866))
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["14.20.1"])
+            item_route = rsps.get(ITEM_URL).respond(200, json=body)
+            client = DataDragonClient(cache_dir=tmp_path)
+            client.fetch_items()
+            client.fetch_items()
+            assert item_route.call_count == 1
+
+    def test_refresh_cache_refetches_from_network(self, tmp_path):
+        body = item_json_body("14.20.1", (3866, ITEM_3866))
+        with respx.mock as rsps:
+            item_route = rsps.get(ITEM_URL).respond(200, json=body)
+            client = DataDragonClient(version="14.20.1", cache_dir=tmp_path)
+            client.fetch_items()
+            assert item_route.call_count == 1
+            client.refresh_cache()
+            assert item_route.call_count == 2
+
+    def test_multi_version_cache_switch(self, tmp_path):
+        body_a = item_json_body("14.20.1", (3866, ITEM_3866))
+        body_b = item_json_body(
+            "14.21.1", (3866, {**ITEM_3866, "name": "Guantes de Bruja v2"})
+        )
+        url_b = f"{DataDragonClient.BASE_URL}/14.21.1/data/es_ES/item.json"
+        with respx.mock as rsps:
+            route_a = rsps.get(ITEM_URL).respond(200, json=body_a)
+            route_b = rsps.get(url_b).respond(200, json=body_b)
+            client = DataDragonClient(cache_dir=tmp_path)
+            client.fetch_items("14.20.1")  # HTTP #1 (no versions.json: explicit version)
+            assert route_a.call_count == 1
+            client.fetch_items("14.20.1")  # in-memory hit -> 0 HTTP
+            assert route_a.call_count == 1
+            client.fetch_items("14.21.1")  # HTTP #2
+            assert route_b.call_count == 1
+            client.fetch_items("14.20.1")  # disk hit -> 0 HTTP
+            assert route_a.call_count == 1
+            assert len(rsps.calls) == 2
+
+    def test_get_item_image_url(self, tmp_path):
+        body = item_json_body("14.20.1", (3866, ITEM_3866))
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, json=["14.20.1"])
+            rsps.get(ITEM_URL).respond(200, json=body)
+            client = DataDragonClient(cache_dir=tmp_path)
+            assert (
+                client.get_item_image_url(3866)
+                == "https://ddragon.leagueoflegends.com/cdn/14.20.1/img/item/3866.png"
+            )
+            assert client.get_item_image_url(0) == ""
+            assert client.get_item_image_url(9999) == ""
+
+    def test_http_errors_propagate(self, tmp_path):
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(500)
+            client = DataDragonClient(cache_dir=tmp_path)
+            with pytest.raises(httpx.HTTPError):
+                client.get_latest_version()
+
+    def test_malformed_versions_json_propagates(self, tmp_path):
+        with respx.mock as rsps:
+            rsps.get(VERSIONS_URL).respond(200, text="not json")
+            client = DataDragonClient(cache_dir=tmp_path)
+            with pytest.raises(ValueError):
+                client.get_latest_version()
+
+    def test_item_json_http_error_propagates(self, tmp_path):
+        with respx.mock as rsps:
+            rsps.get(ITEM_URL).respond(404)
+            client = DataDragonClient(version="14.20.1", cache_dir=tmp_path)
+            with pytest.raises(httpx.HTTPError):
+                client.fetch_items()
+
+
+# ---------------------------------------------------------------------------
+# package exports (task 1.4)
+# ---------------------------------------------------------------------------
+
+
+def test_package_exports():
+    from modules import riot_items
+    from modules.riot_items import data_dragon, item_cache, models
+
+    assert riot_items.DataDragonClient is data_dragon.DataDragonClient
+    assert riot_items.ItemCache is item_cache.ItemCache
+    assert riot_items.Item is models.Item
+    assert riot_items.ItemGold is models.ItemGold
+    assert riot_items.ItemImage is models.ItemImage
+    assert riot_items.ItemData is models.ItemData
