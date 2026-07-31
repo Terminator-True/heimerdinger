@@ -13,7 +13,14 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
+
+from modules.config_manager import get_ddragon_config
+from modules.data.report_builder import extract_team_composition
 from modules.llm.prompt_engineer import build_chat_context
+from modules.logger import get_logger
+from modules.riot_items import DataDragonClient
+from modules.riot_items.models import Item
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +44,51 @@ def _fmt(val: Any, decimals: int = 1) -> str:
     if isinstance(val, float):
         return f"{val:.{decimals}f}"
     return str(val)
+
+
+def _item_label(slot_id: int, named: Dict[int, Optional[Item]]) -> Optional[str]:
+    """Render one item slot as 'Name (G oro)', or None for empty slots.
+
+    Falsy ids (empty slot / id 0) map to None so the generic formatter
+    omits them; ids absent from the version's item data render as
+    'ID N (desconocido)'.
+    """
+    if not slot_id:
+        return None
+    item = named.get(slot_id)
+    if item is None:
+        return f"ID {slot_id} (desconocido)"
+    return f"{item.name} ({item.gold.total} oro)"
+
+
+def _render_items(slots: List[Any],
+                  named: Dict[int, Optional[Item]]) -> List[Optional[str]]:
+    """Map raw item slot ids (0..5) to display labels, preserving order."""
+    return [_item_label(s, named) for s in (slots or [])]
+
+
+def _render_build_section(match_doc: Dict[str, Any],
+                          participant: Dict[str, Any],
+                          slots: Optional[List[Any]],
+                          named: Dict[int, Optional[Item]]) -> str:
+    """Render the '=== BUILD ===' composition section.
+
+    Target items (slots 0-5, '(vacío)' for empty slots) plus the trinket
+    (item6) come from the same resolution map ``named`` — no extra Data
+    Dragon call. Per-team champion lists are read from the raw match doc.
+    """
+    labels = [_item_label(s, named) for s in (slots or [])]
+    parts = [label if label is not None else "(vacío)" for label in labels]
+    trinket = participant.get("item6") or 0
+    if trinket:
+        parts.append(f"Trinket: {_item_label(trinket, named)}")
+    lines = ["=== BUILD ===", "Items: " + " | ".join(parts)]
+    ally_id = participant.get("teamId") or 100
+    composition = extract_team_composition(match_doc)
+    for team_id in sorted(composition):
+        tag = "Aliados" if team_id == ally_id else "Enemigos"
+        lines.append(f"{tag} ({team_id}): " + ", ".join(composition[team_id]))
+    return "\n".join(lines)
 
 
 def _find_participant(match_doc: Dict[str, Any], puuid: str) -> Optional[Dict[str, Any]]:
@@ -326,9 +378,25 @@ class CoachingPromptBuilder:
         # prompt is ~800 tokens, ready for LLaMA
     """
 
-    def __init__(self, schema_path: Optional[str] = None):
+    def __init__(self, schema_path: Optional[str] = None,
+                 ddragon_client: Optional[DataDragonClient] = None):
         self.schema = _load_schema(schema_path)
         self.assembler = PromptAssembler(self.schema)
+        # Data Dragon client: injectable for tests; otherwise created lazily
+        # on the first build_prompt that needs item names (network-free ctor).
+        self._client = ddragon_client
+        self._named: Dict[int, Optional[Item]] = {}
+        self._raw_items: Optional[List[Any]] = None
+        self.resolution_status = "skipped"  # "resolved" | "fallback" | "skipped"
+
+    def _make_client(self) -> DataDragonClient:
+        """Build the default Data Dragon client from ddragon config.
+
+        Construction performs NO network I/O; the version resolves lazily on
+        the first fetch that needs it.
+        """
+        cfg = get_ddragon_config()
+        return DataDragonClient(locale=cfg["language"], cache_dir=Path(cfg["cache_dir"]))
 
     def build_prompt(self, match_doc: Dict[str, Any],
                      puuid: Optional[str] = None,
@@ -380,6 +448,32 @@ class CoachingPromptBuilder:
         # resolve all fields
         resolved = resolver.resolve_many(participant, prompt_fields)
 
+        # --- DDragon: resolve item ids to names for this match patch ---
+        if self._client is None and any(
+            isinstance(x, int) and x for x in (resolved.get("items") or [])
+        ):
+            self._client = self._make_client()  # lazy; ctor is network-free
+        if self._client is not None:
+            try:
+                gv = info.get("gameVersion")
+                version = self._client.resolve_version(gv) if gv else self._client.version
+                slot_ids = [x for x in (resolved.get("items") or []) if x]  # item0..5, skip 0
+                trinket = participant.get("item6") or 0
+                if trinket:
+                    slot_ids.append(trinket)  # item6 resolved in the SAME fetch
+                named = self._client.get_items_by_ids(slot_ids, version=version)
+                self._raw_items = resolved.get("items") or []
+                resolved["items"] = _render_items(self._raw_items, named)
+                self._named = named
+                self.resolution_status = "resolved"
+            except (httpx.HTTPError, ValueError) as exc:
+                # offline/timeout/malformed JSON -> raw ids (old behavior)
+                get_logger().warning(
+                    "DDragon item resolution failed; falling back to raw ids: %s", exc
+                )
+                self._named = {}
+                self.resolution_status = "fallback"
+
         # format role fields (skip those shown in header)
         header_keys = {"championName", "win"}
         campos = self.assembler._format_fields(
@@ -402,6 +496,15 @@ class CoachingPromptBuilder:
         win = resolved.get("win", participant.get("win", "?"))
 
         # assemble (chat context is inserted before INSTRUCCIONES by the assembler)
+        chat_context = build_chat_context(match_snapshot, history)
+        if self._named:
+            build_section = _render_build_section(
+                match_doc, participant, self._raw_items, self._named
+            )
+            if build_section:
+                chat_context = (
+                    build_section + ("\n" + chat_context if chat_context else "")
+                )
         return self.assembler.assemble(
             riot_id=riot_id,
             champion_name=champ,
@@ -410,7 +513,7 @@ class CoachingPromptBuilder:
             campos_del_rol=campos,
             team_objectives=team_obj_text,
             coaching_focus=focus,
-            chat_context=build_chat_context(match_snapshot, history),
+            chat_context=chat_context,
         )
 
     # ------------------------------------------------------------------
