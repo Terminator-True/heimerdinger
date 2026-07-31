@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 import json
 import re
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 from .ollama_client import OllamaClient
 from .prompt_engineer import PromptEngineer
@@ -88,7 +88,7 @@ class LLMAdvisor:
             if puuid:
                 out_dir = os.path.join("reports", "ollama_responses")
                 os.makedirs(out_dir, exist_ok=True)
-                ts = datetime.utcnow().isoformat() + "Z"
+                ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 fname = os.path.join(out_dir, f"{puuid}.txt")
                 with open(fname, "w", encoding="utf-8") as f:
                     f.write(f"# captured_at: {ts}\n# model: {model}\n# prompt:\n")
