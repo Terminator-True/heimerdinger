@@ -19,7 +19,8 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from modules.config_manager import get_team
-from modules.ingest.lib import ingest_player
+from modules.ingest.lib import ingest_player, resolve_team_puuids
+from modules.riot_api.client import RiotClient
 from modules.embeddings.ingest import run_ingestion
 from modules.logger import get_logger
 
@@ -43,6 +44,7 @@ def _sleep_in_chunks(interval, running_flag_getter):
 
 def _run_cycle(args, logger):
     team = get_team(args.team)
+    team_puuids = resolve_team_puuids(team, RiotClient(region=args.region))
     players_ok = 0
     players_failed = 0
 
@@ -58,6 +60,7 @@ def _run_cycle(args, logger):
                 region=args.region,
                 region_rep=args.region_rep,
                 skip_fetch=args.skip_fetch,
+                team_puuids=team_puuids,
             )
             players_ok += 1
         except Exception:

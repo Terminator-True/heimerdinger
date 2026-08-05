@@ -13,7 +13,8 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from modules.config_manager import get_team
-from modules.ingest.lib import ingest_player
+from modules.ingest.lib import ingest_player, resolve_team_puuids
+from modules.riot_api.client import RiotClient
 
 console = Console()
 
@@ -33,6 +34,8 @@ def main():
         console.print(f"[red]{e}[/red]")
         sys.exit(1)
 
+    team_puuids = resolve_team_puuids(team, RiotClient(region=args.region))
+
     for player in team:
         riotid = player.get("riotid")
         if not riotid:
@@ -40,8 +43,8 @@ def main():
             continue
         console.print(f"Ingesting {riotid}...")
         try:
-            summary = ingest_player(riotid=riotid, count=args.games, region=args.region, region_rep=args.region_rep, skip_fetch=args.skip_fetch)
-            console.print(f"{riotid}: puuid={summary.get('puuid')} fetched={summary.get('matches_fetched')} saved={summary.get('matches_saved')}")
+            summary = ingest_player(riotid=riotid, count=args.games, region=args.region, region_rep=args.region_rep, skip_fetch=args.skip_fetch, team_puuids=team_puuids)
+            console.print(f"{riotid}: puuid={summary.get('puuid')} fetched={summary.get('matches_fetched')} saved={summary.get('matches_saved')} discarded={summary.get('matches_discarded')}")
         except Exception as exc:
             # Fail for this player: report the error (with traceback) and continue with next
             console.print(f"[red]Error ingesting {riotid}: {exc}[/red]")

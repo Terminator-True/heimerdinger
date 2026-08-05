@@ -21,9 +21,10 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from modules.config_manager import get_team
-from modules.ingest.lib import ingest_player
+from modules.ingest.lib import ingest_player, resolve_team_puuids
 from modules.data.report_builder import ReportBuilder
 from modules.llm.llm_advisor import LLMAdvisor
+from modules.riot_api.client import RiotClient
 from modules.db.connection import get_db
 from rich.console import Console
 from modules.logger import get_logger
@@ -46,13 +47,14 @@ def main():
     team = get_team(args.team)
     db = get_db()
     rb = ReportBuilder()
+    team_puuids = resolve_team_puuids(team, RiotClient(region=args.region))
 
     for p in team:
         riotid = p.get("riotid")
         role = p.get("role")
         console.print(f"\n--- Processing {riotid} ({role}) ---")
         logger.info("Starting ingest for %s (%s)", riotid, role)
-        res = ingest_player(riotid, count=args.games, region=args.region, skip_fetch=args.skip_fetch)
+        res = ingest_player(riotid, count=args.games, region=args.region, skip_fetch=args.skip_fetch, team_puuids=team_puuids)
         puuid = res.get("puuid")
         if not puuid:
             console.print(f"[yellow]Could not resolve puuid for {riotid}; skipping report[/yellow]")
