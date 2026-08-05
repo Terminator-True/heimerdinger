@@ -9,3 +9,5 @@ sentence-transformers>=2.2.2
 chromadb>=1.0.0
 textual>=0.60.0
 plotext>=5.2.0
+fastapi>=0.110
+uvicorn>=0.27

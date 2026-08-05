@@ -85,6 +85,64 @@ python -m tui.app
 
 ---
 
+## API (FastAPI)
+
+Heimerdinger expone sus capacidades como Back-end HTTP con **FastAPI**. Todos los endpoints son síncronos (corren en threadpool) — el codebase es síncrono y no se fuerza async donde no lo hay.
+
+### Arranque
+
+```bash
+# Desde la raíz del repo
+uvicorn app.main:app --reload
+```
+
+- Documentación interactiva (Swagger UI): <http://localhost:8000/docs>
+- Schema OpenAPI: <http://localhost:8000/openapi.json>
+- Health check: <http://localhost:8000/health>
+
+### Autenticación
+
+Si definís `API_TOKEN` en `.env`, **todos los endpoints excepto `/` y `/health`** exigen el header `X-API-Key: <API_TOKEN>`; sin él responden `401`. Si `API_TOKEN` no está definido, la API corre abierta (modo dev) y loguea un warning — no la expongas más allá de loopback sin setear la key.
+
+### Endpoints
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/` | Info básica de la API |
+| GET | `/health` | Estado del servicio y conectividad con MongoDB |
+| GET | `/team` | Equipo actual desde `config/team.json` (`?team_path=`) |
+| POST | `/ingest/player` | Ingiesta partidas de un jugador (`riotid`, `count`, `team_puuids` opcional) |
+| POST | `/ingest/team` | Ingiesta partidas de todo el equipo; solo guarda partidas con los 5 integrantes presentes |
+| GET | `/players/{puuid}/matches` | Lista las partidas ingeridas de un jugador (`?limit=`) |
+| GET | `/players/{puuid}/report` | Reporte agregado del jugador |
+| GET | `/players/{puuid}/matches/{match_id}/report` | Reporte de una partida específica |
+| GET | `/matches/{match_id}/composition` | Composición de campeones por equipo |
+| GET | `/matches/{match_id}/snapshot` | Snapshot textual de la partida por equipo |
+| POST | `/coach` | Pregunta al coach (Ollama): `question`, `role`, `last_match`, `lang` |
+| POST | `/embeddings/seed` | Re-ingesta reportes y partidas al vector store |
+| POST | `/embeddings/query` | Búsqueda semántica en el vector store (`query`, `top_k`, `where`) |
+
+### Ejemplos
+
+```bash
+# Health
+curl http://localhost:8000/health
+
+# Ingiesta del equipo (solo partidas 5/5)
+curl -X POST http://localhost:8000/ingest/team -H "Content-Type: application/json" -d '{"count": 5}'
+
+# Reporte de un jugador
+curl http://localhost:8000/players/{puuid}/report
+
+# Pregunta al coach
+curl -X POST http://localhost:8000/coach -H "Content-Type: application/json" \
+  -d '{"question": "¿Qué mejoro como support?", "role": "Support"}'
+```
+
+> Nota: `/ingest/team` aplica el filtro de presencia del equipo — una partida solo se ingiere si los 5 integrantes del `team.json` están entre los participantes; el resto se descarta.
+
+---
+
 ## Estructura del proyecto
 
 ```
@@ -93,6 +151,9 @@ heimerdinger/
 │   ├── .env.example         # Template de variables de entorno
 │   ├── team.json            # Jugadores del equipo
 │   └── coaching_schema.json # Schema de coaching por rol
+├── app/                     # Backend API (FastAPI)
+│   ├── main.py              # App, CORS y endpoints REST
+│   └── schemas.py           # Modelos Pydantic de request
 ├── modules/                 # Backend
 │   ├── riot_api/            # Cliente Riot API + rate limiter
 │   ├── data/                # Match parser + report builder
