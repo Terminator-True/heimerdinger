@@ -3,6 +3,7 @@ import { Navbar } from './components/Navbar'
 import { SettingsProvider } from './components/settings/SettingsProvider'
 import { Placeholder } from './components/Placeholder'
 import { LandingView } from './views/LandingView'
+import { PlayerDashboardView } from './views/PlayerDashboardView'
 
 export default function App() {
   return (
@@ -12,10 +13,7 @@ export default function App() {
           <Navbar />
           <Routes>
             <Route path="/" element={<LandingView />} />
-            <Route
-              path="/player/:puuid"
-              element={<Placeholder title="Jugador" />}
-            />
+            <Route path="/player/:puuid" element={<PlayerDashboardView />} />
             <Route
               path="/player/:puuid/gold"
               element={<Placeholder title="Reporte de oro" />}
