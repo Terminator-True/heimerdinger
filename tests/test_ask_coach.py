@@ -1,8 +1,11 @@
-"""Tests for the reordered retrieval flow in scripts/ask_coach.py.
+"""Tests for the reordered retrieval flow in the coaching service.
 
 Only the last_match=False (aggregate report) branch changes: semantic query
 always runs first, retrieve_for_category always also runs, both merged into
 `passages` for PromptEngineer.build_prompt. last_match=True is unaffected.
+
+The pipeline lives in modules/coaching/service.py (CoachingService);
+scripts/ask_coach.py is a thin CLI wrapper over it.
 """
 import sys
 import types
@@ -14,24 +17,38 @@ if REPO_ROOT not in sys.path:
 
 import pytest
 
+import modules.coaching.service as coach_service
+
 
 class FakeDB:
     def get_collection(self, name):
         raise RuntimeError("not used in these tests")
 
 
+class FakeOut:
+    """FileOutputPort fake capturing coach exchanges instead of writing."""
+
+    def __init__(self):
+        self.exchanges = []
+
+    def write_coach_exchange(self, payload, ts):
+        self.exchanges.append((payload, ts))
+
+    def write_report(self, *a, **k):
+        raise OSError("no io in tests")
+
+    def write_ollama_response(self, *a, **k):
+        raise OSError("no io in tests")
+
+
 @pytest.fixture
 def patched_ask_coach(monkeypatch):
-    """Import ask_coach with all external side effects mocked."""
-    import scripts.ask_coach as ask_coach_mod
-
-    monkeypatch.setattr(ask_coach_mod, "get_db", lambda: FakeDB())
+    """Build a CoachingService with all external side effects mocked."""
+    monkeypatch.setattr(coach_service, "get_db", lambda: FakeDB())
 
     class FakeOllama:
         def generate(self, prompt, model):
             return {"response": "ok"}
-
-    monkeypatch.setattr(ask_coach_mod, "OllamaClient", FakeOllama)
 
     class FakePromptEngineer:
         def __init__(self):
@@ -42,34 +59,21 @@ def patched_ask_coach(monkeypatch):
             return "prompt"
 
     fake_pe = FakePromptEngineer()
-    monkeypatch.setattr(ask_coach_mod, "PromptEngineer", lambda: fake_pe)
+    monkeypatch.setattr(coach_service, "classify_question",
+                        lambda q: {"category_id": "laning", "category_label": "laning",
+                                   "method": "rule", "confidence": 0.9})
+    monkeypatch.setattr(coach_service, "_build_aggregate_report", lambda db, role: {})
 
-    monkeypatch.setattr(
-        ask_coach_mod, "classify_question",
-        lambda q: {"category_id": "laning", "category_label": "laning", "method": "rule", "confidence": 0.9},
+    svc = coach_service.CoachingService(
+        client=FakeOllama(), engineer=fake_pe, file_output=FakeOut(),
     )
-    monkeypatch.setattr(ask_coach_mod, "_build_aggregate_report", lambda db, role: {})
-
-    # avoid writing response files during tests
-    monkeypatch.setattr(ask_coach_mod.os, "makedirs", lambda *a, **k: None)
-    monkeypatch.setattr(ask_coach_mod.json, "dump", lambda *a, **k: None)
-
-    real_open = open
-
-    def _guarded_open(path, *a, **k):
-        if "ollama_responses" in str(path):
-            raise OSError("no io in tests")
-        return real_open(path, *a, **k)
-
-    monkeypatch.setattr("builtins.open", _guarded_open)
-
-    return ask_coach_mod, fake_pe
+    return svc, fake_pe
 
 
 def test_last_match_false_merges_semantic_and_structured(monkeypatch, patched_ask_coach):
-    ask_coach_mod, fake_pe = patched_ask_coach
+    svc, fake_pe = patched_ask_coach
 
-    monkeypatch.setattr(ask_coach_mod, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"])
+    monkeypatch.setattr(coach_service, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"])
 
     class FakeEmbedder:
         def embed_texts(self, texts):
@@ -86,15 +90,15 @@ def test_last_match_false_merges_semantic_and_structured(monkeypatch, patched_as
     monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
     monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
 
-    ask_coach_mod.ask_coach(question="how is my laning", role="Jungle", last_match=False)
+    svc.ask_coach(question="how is my laning", role="Jungle", last_match=False)
 
     assert fake_pe.last_passages == ["semantic: role benchmark", "structured: cs=5.2"]
 
 
 def test_last_match_false_empty_store_falls_back_to_structured_only(monkeypatch, patched_ask_coach):
-    ask_coach_mod, fake_pe = patched_ask_coach
+    svc, fake_pe = patched_ask_coach
 
-    monkeypatch.setattr(ask_coach_mod, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"])
+    monkeypatch.setattr(coach_service, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"])
 
     class FakeEmbedder:
         def embed_texts(self, texts):
@@ -114,15 +118,15 @@ def test_last_match_false_empty_store_falls_back_to_structured_only(monkeypatch,
     monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
     monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
 
-    ask_coach_mod.ask_coach(question="how is my laning", role="Jungle", last_match=False)
+    svc.ask_coach(question="how is my laning", role="Jungle", last_match=False)
 
     assert fake_pe.last_passages == ["structured: cs=5.2"]
 
 
 def test_last_match_false_missing_vector_store_does_not_raise(monkeypatch, patched_ask_coach):
-    ask_coach_mod, fake_pe = patched_ask_coach
+    svc, fake_pe = patched_ask_coach
 
-    monkeypatch.setattr(ask_coach_mod, "retrieve_for_category", lambda *a, **k: ["structured only"])
+    monkeypatch.setattr(coach_service, "retrieve_for_category", lambda *a, **k: ["structured only"])
 
     def _raise_import(*a, **k):
         raise ImportError("chromadb is required for the vector store")
@@ -131,14 +135,14 @@ def test_last_match_false_missing_vector_store_does_not_raise(monkeypatch, patch
     fake_store_mod.VectorStore = _raise_import
     monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
 
-    ask_coach_mod.ask_coach(question="how is my laning", role="Jungle", last_match=False)
+    svc.ask_coach(question="how is my laning", role="Jungle", last_match=False)
 
     assert fake_pe.last_passages == ["structured only"]
 
 
 def test_last_match_true_path_unaffected(monkeypatch, patched_ask_coach):
     """last_match=True must still use CoachingPromptBuilder with no passages, untouched."""
-    ask_coach_mod, fake_pe = patched_ask_coach
+    svc, fake_pe = patched_ask_coach
 
     # This path can hit the inline embedding fallback; keep the embedding
     # stack hermetic so the real (multilingual) model is never loaded.
@@ -171,17 +175,17 @@ def test_last_match_true_path_unaffected(monkeypatch, patched_ask_coach):
                                "match_snapshot": match_snapshot, "history": history}
             return "schema-driven prompt"
 
-    monkeypatch.setattr(ask_coach_mod, "CoachingPromptBuilder", FakeCoachingPromptBuilder)
+    monkeypatch.setattr(coach_service, "CoachingPromptBuilder", FakeCoachingPromptBuilder)
     monkeypatch.setattr(
-        ask_coach_mod, "_build_last_match_report",
+        coach_service, "_build_last_match_report",
         lambda db, role, puuid=None: {"report": {}, "full_match": {"info": {}}, "puuid": "p1"},
     )
 
     # retrieve_for_category / semantic retrieval should not matter for this path,
     # but ensure they're not required to be called
-    monkeypatch.setattr(ask_coach_mod, "retrieve_for_category", lambda *a, **k: [])
+    monkeypatch.setattr(coach_service, "retrieve_for_category", lambda *a, **k: [])
 
-    ask_coach_mod.ask_coach(
+    svc.ask_coach(
         question="analyze my last game", role="Mid", last_match=True,
         history=[{"role": "user", "content": "hola"}, {"role": "assistant", "content": "hola"}],
     )
@@ -197,7 +201,7 @@ def test_last_match_true_path_unaffected(monkeypatch, patched_ask_coach):
 
 def test_semantic_passages_applies_role_where_filter(monkeypatch, patched_ask_coach):
     """A role mentioned in the question narrows the vector query via where=."""
-    ask_coach_mod, _ = patched_ask_coach
+    _, _ = patched_ask_coach
     calls = {}
 
     class FakeEmbedder:
@@ -217,7 +221,7 @@ def test_semantic_passages_applies_role_where_filter(monkeypatch, patched_ask_co
     monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
     monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
 
-    out = ask_coach_mod._semantic_passages(
+    out = coach_service._semantic_passages(
         "cómo viene el farm del jungler", role="Top", threshold=1.0
     )
 
@@ -228,7 +232,7 @@ def test_semantic_passages_applies_role_where_filter(monkeypatch, patched_ask_co
 
 def test_semantic_passages_keyword_fallback_when_threshold_misses(monkeypatch, patched_ask_coach):
     """When no semantic hit beats the threshold, keyword search takes over."""
-    ask_coach_mod, _ = patched_ask_coach
+    _, _ = patched_ask_coach
     calls = {}
 
     class FakeEmbedder:
@@ -252,7 +256,7 @@ def test_semantic_passages_keyword_fallback_when_threshold_misses(monkeypatch, p
     monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
     monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
 
-    out = ask_coach_mod._semantic_passages(
+    out = coach_service._semantic_passages(
         "cómo viene el farm del jungler", role=None, threshold=1.0
     )
 
@@ -265,7 +269,7 @@ def test_semantic_passages_keyword_fallback_when_threshold_misses(monkeypatch, p
 def test_semantic_passages_role_where_uses_canonical_names(monkeypatch, patched_ask_coach):
     """A question mentioning "support" (canonical) yields a where filter the
     normalized ingest metadata can actually match."""
-    ask_coach_mod, _ = patched_ask_coach
+    _, _ = patched_ask_coach
     calls = {}
 
     class FakeEmbedder:
@@ -284,9 +288,29 @@ def test_semantic_passages_role_where_uses_canonical_names(monkeypatch, patched_
     monkeypatch.setitem(sys.modules, "modules.embeddings.embedder", fake_embeddings_mod)
     monkeypatch.setitem(sys.modules, "modules.embeddings.store", fake_store_mod)
 
-    out = ask_coach_mod._semantic_passages(
+    out = coach_service._semantic_passages(
         "necesito consejos de support", role="Top", threshold=1.0
     )
 
     assert calls["where"] == {"role": {"$in": ["Support", "support", "SUPPORT"]}}
     assert out == ["doc support"]
+
+
+def test_ask_coach_persists_exchange_via_file_output_port(patched_ask_coach):
+    """The persistence block routes through FileOutputPort.write_coach_exchange."""
+    import json
+
+    svc, _ = patched_ask_coach
+    captured = {}
+    svc.file_output.write_coach_exchange = lambda payload, ts: captured.update(
+        {"payload": payload, "ts": ts}
+    )
+
+    out = svc.ask_coach(question="how is my laning", role="Jungle", last_match=False)
+
+    assert out == "ok"
+    assert captured["payload"]["question"] == "how is my laning"
+    assert captured["payload"]["response"] == {"response": "ok"}
+    # ts format preserved from the original script (":" replaced by "-")
+    assert ":" not in captured["ts"]
+    json.dumps(captured["payload"], default=str)  # payload stays JSON-serializable
