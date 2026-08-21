@@ -22,7 +22,7 @@ export default function App() {
             />
             <Route
               path="/matches/:matchId"
-              element={<Placeholder title="Detalle de partida" />}
+              element={<MatchDetailView />}
             />
             <Route path="/coach" element={<Placeholder title="Coach IA" />} />
             <Route path="/team" element={<Placeholder title="Equipo" />} />
