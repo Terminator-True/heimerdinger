@@ -30,6 +30,7 @@ export type ApiError =
   | { kind: 'not_found' }
   | { kind: 'server'; status: number }
   | { kind: 'network' }
+  | { kind: 'timeout'; timeoutMs?: number | undefined }
 
 type RequestOpts = {
   method?: 'GET' | 'POST'
@@ -70,6 +71,12 @@ export async function request<S extends ZodType>(
     res = await fetch(getBaseUrl() + path, init)
   } catch {
     if (timer !== undefined) clearTimeout(timer)
+    // The timer aborts the signal, then fetch rejects with an AbortError.
+    // Surface that as `timeout` so views can distinguish a slow/inference
+    // over-budget request from an offline backend (`network`).
+    if (controller.signal.aborted) {
+      throw { kind: 'timeout', timeoutMs: opts.timeoutMs } satisfies ApiError
+    }
     throw { kind: 'network' } satisfies ApiError
   }
 
@@ -88,6 +95,11 @@ export async function request<S extends ZodType>(
     if (!res.ok) throw { kind: 'server', status: res.status } satisfies ApiError
 
     const raw: unknown = await res.json().catch(() => null)
+    // Empty body or malformed JSON = backend contract violation (server),
+    // not a client-side validation failure.
+    if (raw === null || raw === undefined) {
+      throw { kind: 'server', status: res.status } satisfies ApiError
+    }
     const parsed = opts.schema.safeParse(raw)
     if (!parsed.success) {
       // Bad shape on a healthy 200 = backend contract break; surface as a
@@ -135,7 +147,7 @@ function get<S extends ZodType>(
   return request(path, { schema, timeoutMs: DEFAULT_TIMEOUT_MS })
 }
 
-// --- Endpoints (14 per explore inventory; camelCase args mapped to API snake_case bodies) ---
+// --- Endpoints (camelCase args mapped to API snake_case bodies) ---
 
 export function getRoot(): Promise<z.output<typeof rootSchema>> {
   return get('/', rootSchema)
@@ -280,6 +292,6 @@ export function queryEmbeddings(params: {
 }
 
 export function seedEmbeddings(): Promise<z.output<typeof embeddingsSeedSchema>> {
-  // No timeout: full re-ingestion can run minutes (explore CRITICAL risk).
+  // No timeout: full re-seeding re-runs sync ingestion and can take minutes.
   return request('/embeddings/seed', { method: 'POST', schema: embeddingsSeedSchema })
 }

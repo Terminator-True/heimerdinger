@@ -1,7 +1,12 @@
-import { describe, it, expect, vi } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { getApiKey, saveApiKey, getBaseUrl, setBaseUrl } from './settings'
 
 describe('settings', () => {
+  afterEach(() => {
+    localStorage.removeItem('heimerdinger.apiKey')
+    localStorage.removeItem('heimerdinger.baseUrl')
+  })
+
   it('returns empty api key when nothing stored', () => {
     expect(getApiKey()).toBe('')
   })

@@ -79,6 +79,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  localStorage.removeItem('heimerdinger.apiKey')
+  localStorage.removeItem('heimerdinger.baseUrl')
 })
 
 const HEALTH_OK = { status: 'ok', mongodb: true }
@@ -158,9 +160,62 @@ describe('error mapping', () => {
     await expect(getHealth()).rejects.toMatchObject({ kind: 'network' })
   })
 
+  // Simulates the real timeout path: the timer aborts the signal and fetch
+  // rejects with an AbortError DOMException — must NOT surface as network.
+  function rejectOnAbort(): void {
+    fetchMock.mockImplementation(
+      (_url: string, init?: FakeInit) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted.', 'AbortError')),
+          )
+        }),
+    )
+  }
+
+  it('maps an abort-triggered fetch rejection to timeout with the default budget', async () => {
+    vi.useFakeTimers()
+    rejectOnAbort()
+    const err = getHealth().catch((e: ApiError) => e)
+    await vi.advanceTimersByTimeAsync(DEFAULT_TIMEOUT_MS)
+    expect(await err).toEqual({ kind: 'timeout', timeoutMs: DEFAULT_TIMEOUT_MS })
+  })
+
+  it('reports the coach budget when /coach exceeds COACH_TIMEOUT_MS', async () => {
+    vi.useFakeTimers()
+    rejectOnAbort()
+    const err = askCoach({ question: 'q' }).catch((e: ApiError) => e)
+    await vi.advanceTimersByTimeAsync(COACH_TIMEOUT_MS)
+    expect(await err).toEqual({ kind: 'timeout', timeoutMs: COACH_TIMEOUT_MS })
+  })
+
   it('rejects with validation error when a 200 body fails its zod schema', async () => {
     respond({ totally: 'wrong' }, 200)
     await expect(getHealth()).rejects.toMatchObject({ kind: 'validation' })
+  })
+
+  // Backend contract violation, not a client parse failure.
+  function respondUnparseableBody(jsonError: unknown): void {
+    fetchMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw jsonError
+      },
+    }))
+  }
+
+  it('maps an empty 200 body to server error, not validation', async () => {
+    respondUnparseableBody(new SyntaxError('Unexpected end of JSON input'))
+    await expect(getHealth()).rejects.toMatchObject({ kind: 'server', status: 200 })
+  })
+
+  it('maps malformed JSON on a 200 to server error, not validation', async () => {
+    respondUnparseableBody(new SyntaxError("Unexpected token 'h' is not valid JSON"))
+    await expect(getTeam('team.json')).rejects.toMatchObject({
+      kind: 'server',
+      status: 200,
+    })
   })
 })
 
@@ -327,9 +382,9 @@ describe('timeout arming policy', () => {
     vi.useFakeTimers()
     const h = hangFetch()
     const promise = askCoach({ question: 'q' })
-    await vi.advanceTimersByTimeAsync(15_000)
+    await vi.advanceTimersByTimeAsync(DEFAULT_TIMEOUT_MS)
     expect(lastSignal?.aborted).toBe(false)
-    await vi.advanceTimersByTimeAsync(COACH_TIMEOUT_MS - 15_000 - 1)
+    await vi.advanceTimersByTimeAsync(COACH_TIMEOUT_MS - DEFAULT_TIMEOUT_MS - 1)
     expect(lastSignal?.aborted).toBe(false)
     await vi.advanceTimersByTimeAsync(1)
     expect(lastSignal?.aborted).toBe(true)
