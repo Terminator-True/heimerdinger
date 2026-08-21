@@ -9,6 +9,9 @@ export const GENERIC_TIMEOUT_COPY =
 export const INGEST_TIMEOUT_COPY =
   'La búsqueda tardó demasiado. El jugador quizás ya se esté procesando; probá de nuevo en unos minutos.'
 
+export const COACH_TIMEOUT_COPY = 'Ollama tardó demasiado. Probá de nuevo.'
+export const COACH_SERVER_COPY = 'Verificá que Ollama esté corriendo localmente.'
+
 export function errorCopy(err: ApiError): string {
   switch (err.kind) {
     case 'timeout':
