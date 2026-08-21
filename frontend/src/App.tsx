@@ -1,11 +1,12 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
 import { SettingsProvider } from './components/settings/SettingsProvider'
-import { Placeholder } from './components/Placeholder'
 import { LandingView } from './views/LandingView'
 import { PlayerDashboardView } from './views/PlayerDashboardView'
 import { GoldReportView } from './views/GoldReportView'
 import { MatchDetailView } from './views/MatchDetailView'
+import { CoachView } from './views/CoachView'
+import { TeamView } from './views/TeamView'
 
 export default function App() {
   return (
@@ -24,8 +25,8 @@ export default function App() {
               path="/matches/:matchId"
               element={<MatchDetailView />}
             />
-            <Route path="/coach" element={<Placeholder title="Coach IA" />} />
-            <Route path="/team" element={<Placeholder title="Equipo" />} />
+            <Route path="/coach" element={<CoachView />} />
+            <Route path="/team" element={<TeamView />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </div>
