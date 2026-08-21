@@ -7,9 +7,9 @@ and ``scripts/ask_coach.py``.
 
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 
 class LocalFileOutput:
@@ -18,7 +18,7 @@ class LocalFileOutput:
     def __init__(self, output_dir: str = "reports"):
         self.output_dir = Path(output_dir)
 
-    def write_report(self, report: Dict[str, Any], filename: str) -> None:
+    def write_report(self, report: dict[str, Any], filename: str) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.output_dir / filename
         with out_path.open("w", encoding="utf-8") as fh:
@@ -27,7 +27,7 @@ class LocalFileOutput:
     def write_ollama_response(self, puuid: str, prompt: str, raw: Any, model: str) -> None:
         out_dir = os.path.join(str(self.output_dir), "ollama_responses")
         os.makedirs(out_dir, exist_ok=True)
-        ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        ts = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         fname = os.path.join(out_dir, f"{puuid}.txt")
         with open(fname, "w", encoding="utf-8") as f:
             f.write(f"# captured_at: {ts}\n# model: {model}\n# prompt:\n")
@@ -37,7 +37,7 @@ class LocalFileOutput:
             except Exception:
                 f.write(str(raw))
 
-    def write_coach_exchange(self, payload: Dict[str, Any], ts: str) -> None:
+    def write_coach_exchange(self, payload: dict[str, Any], ts: str) -> None:
         out_dir = os.path.join(str(self.output_dir), "ollama_responses")
         os.makedirs(out_dir, exist_ok=True)
         fname = os.path.join(out_dir, f"ask_coach_{ts}.json")

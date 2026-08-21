@@ -1,6 +1,6 @@
 """Mongo-backed adapter for the ReportRepositoryPort."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 class ReportRepository:
@@ -21,12 +21,12 @@ class ReportRepository:
             return self._db.setdefault("reports", {})
 
     @staticmethod
-    def _filter_for(report: Dict[str, Any]) -> Dict[str, Any]:
+    def _filter_for(report: dict[str, Any]) -> dict[str, Any]:
         if report.get("matchId"):
             return {"player": report.get("player"), "matchId": report.get("matchId")}
         return {"player": report.get("player")}
 
-    def upsert_report(self, report: Dict[str, Any]) -> None:
+    def upsert_report(self, report: dict[str, Any]) -> None:
         col = self._get_col()
         try:
             col.update_one(self._filter_for(report), {"$set": report}, upsert=True)
@@ -38,7 +38,7 @@ class ReportRepository:
                 else:
                     col[key["player"]] = report
 
-    def find_reports_by_role(self, role: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def find_reports_by_role(self, role: str, limit: int = 10) -> list[dict[str, Any]]:
         col = self._get_col()
         try:
             return list(col.find({"role": role}).limit(limit))

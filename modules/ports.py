@@ -6,14 +6,14 @@ Concrete adapters live in ``modules/adapters/`` and are wired in
 VectorStore, Embedder, MatchesRepository) satisfy their ports structurally.
 """
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
 class RiotClientPort(Protocol):
     """Access to the Riot Games API v5."""
 
-    def get_account_by_riot_id(self, game_name: str, tag_line: str) -> Dict[str, Any]:
+    def get_account_by_riot_id(self, game_name: str, tag_line: str) -> dict[str, Any]:
         ...
 
     def get_match_ids_by_puuid(
@@ -22,10 +22,10 @@ class RiotClientPort(Protocol):
         count: int = 20,
         start: int = 0,
         region_rep: str = "europe",
-    ) -> List[str]:
+    ) -> list[str]:
         ...
 
-    def get_match_by_id(self, match_id: str, region_rep: str = "europe") -> Dict[str, Any]:
+    def get_match_by_id(self, match_id: str, region_rep: str = "europe") -> dict[str, Any]:
         ...
 
 
@@ -47,10 +47,10 @@ class MatchRepositoryPort(Protocol):
     def player_match_exists(self, match_id: str, puuid: str) -> bool:
         ...
 
-    def upsert_match(self, match_json: Dict[str, Any], skip_if_exists: bool = False) -> bool:
+    def upsert_match(self, match_json: dict[str, Any], skip_if_exists: bool = False) -> bool:
         ...
 
-    def upsert_parsed_player_match(self, player_parsed: Dict[str, Any]) -> None:
+    def upsert_parsed_player_match(self, player_parsed: dict[str, Any]) -> None:
         ...
 
 
@@ -58,10 +58,10 @@ class MatchRepositoryPort(Protocol):
 class ReportRepositoryPort(Protocol):
     """Persistence for player and match reports."""
 
-    def upsert_report(self, report: Dict[str, Any]) -> None:
+    def upsert_report(self, report: dict[str, Any]) -> None:
         ...
 
-    def find_reports_by_role(self, role: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def find_reports_by_role(self, role: str, limit: int = 10) -> list[dict[str, Any]]:
         ...
 
 
@@ -69,7 +69,7 @@ class ReportRepositoryPort(Protocol):
 class EmbedderPort(Protocol):
     """Text embedding backend."""
 
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         ...
 
 
@@ -79,18 +79,18 @@ class VectorStorePort(Protocol):
 
     def query(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 5,
-        where: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        where: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         ...
 
     def search_keywords(
         self,
-        keywords: List[str],
+        keywords: list[str],
         top_k: int = 5,
-        where: Optional[Dict[str, Any]] = None,
-    ) -> List[Dict[str, Any]]:
+        where: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         ...
 
 
@@ -98,7 +98,7 @@ class VectorStorePort(Protocol):
 class LLMClientPort(Protocol):
     """Local LLM inference client (e.g. Ollama)."""
 
-    def generate(self, prompt: str, model: Optional[str] = None) -> Dict[str, Any]:
+    def generate(self, prompt: str, model: str | None = None) -> dict[str, Any]:
         ...
 
 
@@ -106,13 +106,13 @@ class LLMClientPort(Protocol):
 class ConfigSourcePort(Protocol):
     """Read-only access to application configuration."""
 
-    def get_team(self, name_or_path: str) -> Dict[str, Any]:
+    def get_team(self, name_or_path: str) -> dict[str, Any]:
         ...
 
-    def get_embeddings_config(self) -> Dict[str, Any]:
+    def get_embeddings_config(self) -> dict[str, Any]:
         ...
 
-    def get_ddragon_config(self) -> Dict[str, Any]:
+    def get_ddragon_config(self) -> dict[str, Any]:
         ...
 
 
@@ -120,7 +120,7 @@ class ConfigSourcePort(Protocol):
 class FileOutputPort(Protocol):
     """File-system output for reports and LLM debug artifacts."""
 
-    def write_report(self, report: Dict[str, Any], filename: str) -> None:
+    def write_report(self, report: dict[str, Any], filename: str) -> None:
         ...
 
     def write_ollama_response(
@@ -132,5 +132,5 @@ class FileOutputPort(Protocol):
     ) -> None:
         ...
 
-    def write_coach_exchange(self, payload: Dict[str, Any], ts: str) -> None:
+    def write_coach_exchange(self, payload: dict[str, Any], ts: str) -> None:
         ...

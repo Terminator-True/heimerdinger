@@ -20,7 +20,7 @@ REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from modules.coaching.service import CoachingService
+from modules.coaching.service import CoachingService  # noqa: E402
 
 
 def ask_coach(question: str,
