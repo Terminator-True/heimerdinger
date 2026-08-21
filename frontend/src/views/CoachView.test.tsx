@@ -18,7 +18,7 @@ function typeAndSend(text: string) {
   fireEvent.change(screen.getByPlaceholderText(/escribí/i), {
     target: { value: text },
   })
-  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+  fireEvent.click(screen.getByRole('button', { name: /enviar/i }))
 }
 
 beforeEach(() => {
@@ -68,7 +68,7 @@ describe('coach chat', () => {
     renderView()
     const input = screen.getByPlaceholderText(/escribí/i)
     fireEvent.change(input, { target: { value: '   ' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+    fireEvent.click(screen.getByRole('button', { name: /enviar/i }))
     expect(mockAsk).not.toHaveBeenCalled()
   })
 
@@ -138,7 +138,7 @@ describe('coach chat', () => {
     )
     renderView()
     typeAndSend('Primera')
-    expect(screen.getByText('El coach está pensando…')).toBeTruthy()
+    expect(screen.getByLabelText('El coach está pensando')).toBeTruthy()
     typeAndSend('Segunda')
     expect(mockAsk).toHaveBeenCalledTimes(1)
 
