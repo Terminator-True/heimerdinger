@@ -1,0 +1,34 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { Navbar } from './components/Navbar'
+import { SettingsProvider } from './components/settings/SettingsProvider'
+import { Placeholder } from './components/Placeholder'
+
+export default function App() {
+  return (
+    <SettingsProvider>
+      <BrowserRouter>
+        <div className="min-h-screen bg-slate-950 text-slate-100">
+          <Navbar />
+          <Routes>
+            <Route path="/" element={<Placeholder title="Inicio" />} />
+            <Route
+              path="/player/:puuid"
+              element={<Placeholder title="Jugador" />}
+            />
+            <Route
+              path="/player/:puuid/gold"
+              element={<Placeholder title="Reporte de oro" />}
+            />
+            <Route
+              path="/matches/:matchId"
+              element={<Placeholder title="Detalle de partida" />}
+            />
+            <Route path="/coach" element={<Placeholder title="Coach IA" />} />
+            <Route path="/team" element={<Placeholder title="Equipo" />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
+      </BrowserRouter>
+    </SettingsProvider>
+  )
+}

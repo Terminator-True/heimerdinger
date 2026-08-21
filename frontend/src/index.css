@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@theme {
+  /* §7 typography token: Inter over system fallbacks */
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* §7 color tokens (bg slate-950 / cards slate-900 / borders slate-800 /
+   accent amber-500 / win blue-400 / loss red-400) are the Tailwind default
+   palette — no custom hexes are defined or allowed. */
