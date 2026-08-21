@@ -5,24 +5,15 @@ import { useApiQuery, type QueryState } from '../hooks/useApiQuery'
 import { errorCopy } from '../lib/errorCopy'
 import { fmtValue } from '../lib/format'
 import { goldEarnedSeries, goldEfficiency } from '../lib/gold'
-import { Skeleton } from '../components/Skeleton'
+
 import { ErrorState } from '../components/ErrorState'
 import { EmptyState } from '../components/EmptyState'
+import { PanelSkeleton } from '../components/PanelSkeleton'
 
 type AggregateGold = Awaited<ReturnType<typeof getGoldReport>>
 type GoldRow = Awaited<ReturnType<typeof getGoldMatches>>[number]
 
 const GOLD_LIMIT = 20
-
-function PanelLoading() {
-  return (
-    <div aria-label="Cargando" className="flex flex-col gap-2 rounded border border-slate-800 bg-slate-900 p-6">
-      <Skeleton className="h-6 w-2/3" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-full" />
-    </div>
-  )
-}
 
 // --- Panel 1: percentile chart from flat aggregate keys ---
 function PercentileChart({
@@ -32,7 +23,7 @@ function PercentileChart({
   state: QueryState<AggregateGold>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') {
     return <EmptyState message="Sin datos de oro todavía" />
@@ -81,7 +72,7 @@ function ItemTimeline({
   state: QueryState<GoldRow[]>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') return <EmptyState message="Sin datos de oro todavía" />
 
@@ -143,15 +134,16 @@ function EfficiencyBadge({
   state: QueryState<GoldRow[]>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') return <EmptyState message="Sin datos de oro todavía" />
 
-  // Ratio over the latest row only; HIDDEN entirely when either field is
-  // absent or gold_value === 0 (unknown). The '—' copy would only mislead
-  // here, so a hidden badge renders nothing.
-  const last = state.data[state.data.length - 1]
-  const ratio = last ? goldEfficiency(last) : null
+  // Ratio over the LATEST match only. The backend sorts rows by _id DESC
+  // (most recent FIRST), so data[0] is the latest match. HIDDEN entirely
+  // when either field is absent or gold_value === 0 (unknown). The '—' copy
+  // would only mislead here, so a hidden badge renders nothing.
+  const latest = state.data[0]
+  const ratio = latest ? goldEfficiency(latest) : null
   if (ratio === null) return null
 
   return (

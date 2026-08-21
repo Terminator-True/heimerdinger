@@ -87,6 +87,20 @@ describe('panel independence', () => {
     expect(await screen.findByTestId('snapshot-text')).toBeTruthy()
   })
 
+  it('shows the gold empty copy on gold 404 while other panels still succeed', async () => {
+    mockComposition.mockResolvedValue({ 100: ['Ahri', 'Lee Sin'], 200: ['Zed'] })
+    mockSnapshot.mockResolvedValue({ snapshot: 'ok' })
+    mockGold.mockRejectedValue({ kind: 'not_found' })
+
+    renderView()
+
+    await waitFor(() => {
+      expect(screen.getByText('Datos de oro no disponibles')).toBeTruthy()
+    })
+    expect(screen.getByText('Lee Sin')).toBeTruthy()
+    expect((await screen.findByTestId('snapshot-text')).textContent).toBe('ok')
+  })
+
   it('renders plain text snapshot without injecting HTML', async () => {
     mockComposition.mockRejectedValue({ kind: 'not_found' })
     mockSnapshot.mockResolvedValue({ snapshot: '<b>bold</b>' })

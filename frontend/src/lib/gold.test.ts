@@ -20,6 +20,11 @@ describe('goldEfficiency badge hide-logic', () => {
     expect(goldEfficiency({ goldEarned: 100, items: {} })).toBeNull()
     expect(goldEfficiency({ goldEarned: 100, items: { gold_value: null } })).toBeNull()
   })
+
+  it('returns null when either field is NaN (non-finite)', () => {
+    expect(goldEfficiency({ goldEarned: NaN, items: { gold_value: 200 } })).toBeNull()
+    expect(goldEfficiency({ goldEarned: 100, items: { gold_value: NaN } })).toBeNull()
+  })
 })
 
 describe('goldEarnedSeries flat-key chart mapping', () => {

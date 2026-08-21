@@ -3,24 +3,15 @@ import { getMatchComposition, getMatchGold, getMatchSnapshot, getPlayerMatchRepo
 import { useApiQuery, type QueryState } from '../hooks/useApiQuery'
 import { errorCopy } from '../lib/errorCopy'
 import { fmtValue } from '../lib/format'
-import { Skeleton } from '../components/Skeleton'
+
 import { ErrorState } from '../components/ErrorState'
 import { EmptyState } from '../components/EmptyState'
+import { PanelSkeleton } from '../components/PanelSkeleton'
 
 type Composition = Awaited<ReturnType<typeof getMatchComposition>>
 type Snapshot = Awaited<ReturnType<typeof getMatchSnapshot>>
 type GoldRow = Awaited<ReturnType<typeof getMatchGold>>['players'][number]
 type MatchReport = Awaited<ReturnType<typeof getPlayerMatchReport>>
-
-function PanelLoading() {
-  return (
-    <div aria-label="Cargando" className="flex flex-col gap-2 rounded border border-slate-800 bg-slate-900 p-6">
-      <Skeleton className="h-6 w-2/3" />
-      <Skeleton className="h-4 w-full" />
-      <Skeleton className="h-4 w-full" />
-    </div>
-  )
-}
 
 // --- Panel 1: team composition ---
 function CompositionPanel({
@@ -30,7 +21,7 @@ function CompositionPanel({
   state: QueryState<Composition>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') return <EmptyState message="Composición no disponible" />
 
@@ -67,7 +58,7 @@ function SnapshotPanel({
   state: QueryState<Snapshot>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') return <EmptyState message="Resumen no disponible" />
 
@@ -93,7 +84,7 @@ function GoldTable({
   state: QueryState<GoldRow[]>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') return <EmptyState message="Datos de oro no disponibles" />
 
@@ -134,7 +125,7 @@ function PlayerReport({
   state: QueryState<MatchReport>
   retry: () => void
 }) {
-  if (state.phase === 'loading') return <PanelLoading />
+  if (state.phase === 'loading') return <PanelSkeleton />
   if (state.phase === 'error') return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
   if (state.phase === 'empty') return <EmptyState message="Reporte no disponible" />
 

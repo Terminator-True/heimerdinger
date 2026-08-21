@@ -15,7 +15,9 @@ export function goldEfficiency(row: GoldEfficiencySource): number | null {
   if (
     typeof earned !== 'number' ||
     typeof value !== 'number' ||
-    value === 0
+    value === 0 ||
+    !Number.isFinite(earned) ||
+    !Number.isFinite(value)
   ) {
     return null
   }

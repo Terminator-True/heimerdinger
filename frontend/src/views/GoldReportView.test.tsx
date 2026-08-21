@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 vi.mock('../lib/api', () => ({
@@ -131,5 +131,39 @@ describe('panel independence', () => {
       expect(screen.getByText('Eficiencia de oro')).toBeTruthy()
     })
     expect(screen.getByText(/1\.25/)).toBeTruthy()
+  })
+
+  it('uses the LATEST match (first row, backend sorts _id DESC) for the badge', async () => {
+    mockReport.mockRejectedValue({ kind: 'not_found' })
+    // Most recent match comes FIRST from the backend (sort _id DESC).
+    mockMatches.mockResolvedValue([
+      goldRow({ matchId: 'M2', goldEarned: 12000, items: { ids: [2], names: ['Triforce'], gold_value: 8000, stats: {} } }),
+      goldRow({ matchId: 'M1', goldEarned: 10000, items: { ids: [1], names: ['Hextech'], gold_value: 8000, stats: {} } }),
+    ])
+
+    renderView()
+
+    await waitFor(() => {
+      expect(screen.getByText('Eficiencia de oro')).toBeTruthy()
+    })
+    // Latest match ratio = 12000/8000 = 1.50, NOT the oldest match 1.25.
+    expect(screen.getByText(/1\.50/)).toBeTruthy()
+    expect(screen.queryByText(/1\.25/)).toBeNull()
+  })
+
+  it('renders ErrorState on a server error and retry re-fetches', async () => {
+    mockReport.mockRejectedValue({ kind: 'server' })
+    mockMatches.mockResolvedValue([goldRow({ matchId: 'M1' })])
+
+    renderView()
+
+    expect(
+      await screen.findByText(/El servidor no pudo procesar la solicitud/),
+    ).toBeTruthy()
+    // Other panels still succeed independently.
+    expect(await screen.findByText('Hextech')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }))
+    await waitFor(() => expect(mockReport).toHaveBeenCalledTimes(2))
   })
 })
