@@ -95,6 +95,25 @@ const INGEST_PLAYER_OK = {
 }
 const COACH_OK = { response: 'play safe' }
 const INGEST_TEAM_OK = { team_puuids_resolved: 2, players: [{ riotid: 'a#1' }] }
+// VERIFIED backend report shapes (report_builder.py / build_match_report).
+// Success has NO status field — empty arrives as HTTP 404.
+const PLAYER_REPORT_OK = {
+  player: 'Nombre#TAG',
+  role: null,
+  champion: null,
+  games_analyzed: 12,
+  metrics: { kda: 3.1 },
+  pro_reference: null,
+  deltas: { kda: 0.5 },
+}
+const MATCH_REPORT_OK = {
+  player: null,
+  matchId: null,
+  champion: 'Ahri',
+  games_analyzed: 1,
+  metrics: {},
+  role: null,
+}
 const EMBEDDING_QUERY_OK = {
   hits: [{ id: 'h1', document: 'doc', metadata: {}, distance: 0.5 }],
 }
@@ -254,10 +273,10 @@ describe('success path', () => {
     respond([])
     await getPlayerMatches('p1')
     expect(lastUrl).toBe('http://localhost:8000/players/p1/matches')
-    respond({ status: 'full' })
+    respond(PLAYER_REPORT_OK)
     await getPlayerReport('p1')
     expect(lastUrl).toBe('http://localhost:8000/players/p1/report')
-    respond({})
+    respond(MATCH_REPORT_OK)
     await getPlayerMatchReport('p1', 'm1')
     expect(lastUrl).toBe('http://localhost:8000/players/p1/matches/m1/report')
     respond({ 100: ['Ahri'] })
@@ -449,9 +468,9 @@ describe('schema registry shapes', () => {
   })
 
   it('accepts nullable report champion/role and ingest-team error entries', async () => {
-    respond({ status: 'full', champion: null, role: null })
+    respond({ ...PLAYER_REPORT_OK, champion: null, role: null })
     const report = await getPlayerReport('p1')
-    expect(report.status).toBe('full')
+    expect(report.champion).toBeNull()
 
     respond({
       team_puuids_resolved: 1,
@@ -459,6 +478,30 @@ describe('schema registry shapes', () => {
     })
     const team = await ingestTeam({})
     expect(team.players[0]?.error).toBe('summoner not found')
+  })
+
+  it('parses the verified player report success payload (no status field)', async () => {
+    respond(PLAYER_REPORT_OK)
+    const data = await getPlayerReport('p1')
+    expect(data.player).toBe('Nombre#TAG')
+    expect(data.games_analyzed).toBe(12)
+    expect(data.metrics).toEqual({ kda: 3.1 })
+    expect(data.deltas).toEqual({ kda: 0.5 })
+    expect(data.status).toBeUndefined()
+  })
+
+  it('parses the verified match report payload', async () => {
+    respond(MATCH_REPORT_OK)
+    await expect(getPlayerMatchReport('p1', 'm1')).resolves.toEqual(
+      MATCH_REPORT_OK,
+    )
+  })
+
+  it('tolerates a player report error variant carrying status/detail', async () => {
+    respond({ status: 'error', player: 'x', detail: 'y' })
+    await expect(getPlayerReport('p1')).resolves.toMatchObject({
+      status: 'error',
+    })
   })
 
   it('ignores unknown extra fields via passthrough', async () => {

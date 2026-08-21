@@ -76,20 +76,36 @@ export const playerMatchSchema = z
 export const playerMatchesSchema = z.array(playerMatchSchema)
 // Note: arrays need no passthrough in zod — element schemas carry looseness.
 
-// GET /players/{puuid}/report — status:"empty" is mapped to empty by the hook;
-// champion/role are null when Counter lists are empty (report_builder.py)
+// GET /players/{puuid}/report — success has NO status (empty = HTTP 404);
+// error variants carry status/detail instead of the full payload, hence the
+// union. champion/role are null when Counter lists are empty (report_builder.py)
 export const playerReportSchema = z
   .object({
-    status: z.string(),
-    games_analyzed: z.number().optional(),
-    champion: z.string().nullable().optional(),
-    role: z.string().nullable().optional(),
+    player: z.string(),
+    role: z.string().nullable(),
+    champion: z.string().nullable(),
+    games_analyzed: z.number(),
+    metrics: z.record(z.string(), z.unknown()),
+    pro_reference: z.object({}).passthrough().nullable(),
+    deltas: z.record(z.string(), z.number().nullable()),
   })
   .passthrough()
+  // Error variants carry status/detail instead of the full payload.
+  // ponytail: error branch intentionally loose; tighten if backend adds
+  // structured error fields worth validating.
+  .or(z.object({ status: z.string() }).passthrough())
 
-// GET /players/{puuid}/matches/{match_id}/report — build_match_report dict,
-// shape kept loose on purpose
-export const matchReportSchema = z.object({}).passthrough()
+// GET /players/{puuid}/matches/{match_id}/report — build_match_report dict
+export const matchReportSchema = z
+  .object({
+    player: z.string().nullable(),
+    matchId: z.string().nullable(),
+    champion: z.string().nullable(),
+    games_analyzed: z.number(),
+    metrics: z.record(z.string(), z.unknown()),
+    role: z.string().nullable(),
+  })
+  .passthrough()
 
 // GET /matches/{match_id}/composition — Record<teamId(str), champion[]>
 export const compositionSchema = z.record(z.string(), z.array(z.string()))
