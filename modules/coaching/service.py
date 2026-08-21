@@ -5,26 +5,29 @@ webapp-v2-migration). The script remains as a thin CLI wrapper over
 ``CoachingService``. Disk persistence goes through the ``FileOutputPort``.
 """
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
-from modules.logger import get_logger
+from modules.adapters.file_output import LocalFileOutput
+from modules.coaching.prompt_builder import CoachingPromptBuilder
 from modules.config_manager import get_embeddings_config
+from modules.data.report_builder import (
+    extract_rich_participant,
+    get_full_match,
+    render_match_snapshot,
+)
 from modules.db.connection import get_db
 from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
 from modules.llm.question_classifier import classify_question
-from modules.llm.retrieval import retrieve_for_category, detect_role, keyword_candidates
-from modules.data.report_builder import get_full_match, extract_rich_participant, render_match_snapshot
-from modules.coaching.prompt_builder import CoachingPromptBuilder
-from modules.adapters.file_output import LocalFileOutput
-
+from modules.llm.retrieval import detect_role, keyword_candidates, retrieve_for_category
+from modules.logger import get_logger
 
 # ------------------------------------------------------------------
 #  helpers
 # ------------------------------------------------------------------
 
-def _find_report_for_role(db, role: str, limit: int = 3) -> List[Dict[str, Any]]:
+def _find_report_for_role(db, role: str, limit: int = 3) -> list[dict[str, Any]]:
     """Fetch most recent reports matching a role."""
     try:
         col = db.get_collection("reports")
@@ -42,7 +45,7 @@ def _find_report_for_role(db, role: str, limit: int = 3) -> List[Dict[str, Any]]
             return []
 
 
-def _build_last_match_report(db, role: str, puuid: Optional[str] = None) -> Dict[str, Any]:
+def _build_last_match_report(db, role: str, puuid: str | None = None) -> dict[str, Any]:
     """Fetch the most recent player_match + full match and build a
     per-match report dict compatible with PromptEngineer.format_report_stats.
 
@@ -101,7 +104,7 @@ def _build_last_match_report(db, role: str, puuid: Optional[str] = None) -> Dict
         return {}
 
 
-def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
+def _build_aggregate_report(db, role: str) -> dict[str, Any]:
     """Fetch the most recent aggregate report for this role."""
     logger = get_logger()
     try:
@@ -114,7 +117,7 @@ def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
     return {}
 
 
-def _role_where(question: str, caller_role: Optional[str]) -> Optional[Dict]:
+def _role_where(question: str, caller_role: str | None) -> dict | None:
     """Chroma `where` filter narrowing retrieval to a role mentioned in the
     question, or None when no role is detected or the caller already plays it.
 
@@ -127,7 +130,7 @@ def _role_where(question: str, caller_role: Optional[str]) -> Optional[Dict]:
     return None
 
 
-def _semantic_passages(question: str, role: Optional[str], threshold: float) -> List[str]:
+def _semantic_passages(question: str, role: str | None, threshold: float) -> list[str]:
     """Query the vector store for passages relevant to `question`.
 
     If the question mentions a role different from the caller's, the query is
@@ -151,14 +154,18 @@ def _semantic_passages(question: str, role: Optional[str], threshold: float) -> 
         else:
             hits = store.query(q_emb, top_k=5)
         if not hits:
-            logger.warning("Semantic retrieval returned zero results (where=%s, collection empty?)", where)
+            logger.warning(
+                "Semantic retrieval returned zero results (where=%s, collection empty?)", where
+            )
         passages = [
             h.get("document") or str(h.get("metadata"))
             for h in hits
             if h.get("distance") is None or h.get("distance") <= threshold
         ]
         if not passages:
-            logger.info("Semantic retrieval: below threshold (%.2f), trying keyword fallback", threshold)
+            logger.info(
+                "Semantic retrieval: below threshold (%.2f), trying keyword fallback", threshold
+            )
             kw_hits = store.search_keywords(keyword_candidates(question), top_k=5, where=where)
             passages = [h.get("document") or str(h.get("metadata")) for h in kw_hits]
         return passages
@@ -175,21 +182,21 @@ class CoachingService:
     """Ask-the-coach pipeline over injected ports."""
 
     def __init__(self,
-                 client: Optional[Any] = None,
-                 engineer: Optional[PromptEngineer] = None,
-                 file_output: Optional[Any] = None):
+                 client: Any | None = None,
+                 engineer: PromptEngineer | None = None,
+                 file_output: Any | None = None):
         self.client = client or OllamaClient()
         self.engineer = engineer or PromptEngineer()
         self.file_output = file_output or LocalFileOutput()
 
     def ask_coach(self,
                   question: str,
-                  role: Optional[str] = None,
+                  role: str | None = None,
                   model: str = "llama3.1:8b",
                   last_match: bool = False,
                   lang: str = "es",
-                  history: Optional[List[Dict]] = None,
-                  db: Optional[Any] = None):
+                  history: list[dict] | None = None,
+                  db: Any | None = None):
         """Classify, retrieve, format prompt, call the LLM.
 
         Args:
@@ -213,7 +220,7 @@ class CoachingService:
                     cat.get("method"), float(cat.get("confidence", 0.0)))
 
         # 2. Retrieve passages
-        passages: List[str] = []
+        passages: list[str] = []
         if last_match:
             # last_match=True is out of scope for the semantic-primary reorder
             # (CoachingPromptBuilder has no `passages` param) — unchanged behavior.
@@ -244,8 +251,14 @@ class CoachingService:
                         if h.get("distance") is None or h.get("distance") <= threshold
                     ]
                     if not hits:
-                        logger.warning("Semantic retrieval returned zero results (where=%s, collection empty?)", where)
-                        hits = store.search_keywords(keyword_candidates(question), top_k=5, where=where)
+                        logger.warning(
+                            "Semantic retrieval returned zero results "
+                            "(where=%s, collection empty?)",
+                            where,
+                        )
+                        hits = store.search_keywords(
+                            keyword_candidates(question), top_k=5, where=where
+                        )
                     for h in hits:
                         passages.append(h.get('document') or str(h.get('metadata')))
                 except Exception:
@@ -258,7 +271,7 @@ class CoachingService:
             threshold = float(embeddings_config.get("distance_threshold", 1.0))
             semantic_passages = _semantic_passages(question, role, threshold)
 
-            structured_passages: List[str] = []
+            structured_passages: list[str] = []
             if role:
                 structured_passages = retrieve_for_category(
                     cat.get("category_id"), role, db, limit=5, last_match=last_match
@@ -269,7 +282,7 @@ class CoachingService:
                         len(semantic_passages), len(structured_passages))
 
         # 3. Build a player report with structured stats
-        player_report: Dict[str, Any] = {"puuid": "ask_coach", "games_analyzed": "N/A"}
+        player_report: dict[str, Any] = {"puuid": "ask_coach", "games_analyzed": "N/A"}
         prompt = None  # will be set by one of the strategies below
 
         if last_match:
@@ -303,7 +316,10 @@ class CoachingService:
                     champ = m.get("championName")
                     kda = f"{m.get('kills', '-')}/{m.get('deaths', '-')}/{m.get('assists', '-')}"
                     dur_str = f"{dur // 60}min" if dur else "-"
-                    game_summary = f"{champ or '?'} | {dur_str} | {'Victoria' if win else 'Derrota'} | KDA {kda}"
+                    game_summary = (
+                        f"{champ or '?'} | {dur_str} | "
+                        f"{'Victoria' if win else 'Derrota'} | KDA {kda}"
+                    )
                     pts = []
                     if m.get("ch_goldPerMinute"):
                         pts.append(f"Gold/min: {m['ch_goldPerMinute']}")
@@ -347,7 +363,7 @@ class CoachingService:
 
         # 6. Persist prompt+response behind the file-output port
         try:
-            ts = datetime.now(timezone.utc).isoformat().replace(":", "-")
+            ts = datetime.now(UTC).isoformat().replace(":", "-")
             self.file_output.write_coach_exchange({
                 "question": question,
                 "role": role,

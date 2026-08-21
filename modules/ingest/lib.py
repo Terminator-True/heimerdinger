@@ -38,7 +38,7 @@ def resolve_team_puuids(team: List[Dict[str, Any]], client) -> List[str]:
     return puuids
 
 
-def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_rep: str = "europe", skip_fetch: bool = False, team_puuids: Optional[List[str]] = None, min_team_members: int = 5) -> Dict[str, Any]:
+def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_rep: str = "europe", skip_fetch: bool = False, team_puuids: Optional[List[str]] = None, min_team_members: int = 5, db=None, client=None, limiter=None, repo=None) -> Dict[str, Any]:
     """Ingest matches for a single player.
 
     Args:
@@ -52,6 +52,10 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
             present among its participants; otherwise the match is discarded.
         min_team_members: minimum number of team members that must be present
             for a match to be ingested (default 5 = the whole team).
+        db: optional database handle (defaults to get_db(MONGO_URI)).
+        client: optional RiotClientPort (defaults to RiotClient(region)).
+        limiter: optional RateLimiterPort (defaults to TokenBucketLimiter).
+        repo: optional MatchRepositoryPort (defaults to MatchesRepository).
 
     Returns:
         Summary dict with keys: puuid, matches_fetched, matches_saved,
@@ -66,15 +70,14 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
             f"Only {len(team_puuids)}/{min_team_members} team puuids resolved; "
             "refusing to ingest with the team-presence filter enabled"
         )
-    # Resolve DB and repositories
-    db = get_db(os.getenv("MONGO_URI"))
+    # Resolve DB and repositories (injected ports win over env-built defaults)
+    db = db if db is not None else get_db(os.getenv("MONGO_URI"))
     matches_col = db.get_collection("matches")
-    repo = MatchesRepository(matches_col)
+    repo = repo if repo is not None else MatchesRepository(matches_col)
 
     # Prepare Riot client and limiter
-    riot_key = os.getenv("RIOT_API_KEY")
-    client = RiotClient(region=region)
-    limiter = TokenBucketLimiter(rate=20, capacity=20)
+    client = client if client is not None else RiotClient(region=region)
+    limiter = limiter if limiter is not None else TokenBucketLimiter(rate=20, capacity=20)
 
     # Parse riotid
     if "#" not in riotid:

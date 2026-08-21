@@ -33,11 +33,11 @@ if REPO_ROOT not in sys.path:
 load_dotenv()
 
 from modules.config_manager import CONFIG_DIR, get_team
+from modules.composition import build_services
 from modules.db.connection import get_db
 from modules.ingest.lib import ingest_player, resolve_team_puuids
 from modules.riot_api.client import RiotClient
 from modules.data.report_builder import (
-    ReportBuilder,
     get_full_match,
     extract_team_composition,
     render_match_snapshot,
@@ -49,6 +49,8 @@ from app.schemas import (
     IngestPlayerRequest,
     IngestTeamRequest,
 )
+
+_services = build_services()
 
 logger = get_logger(__name__)
 
@@ -245,7 +247,7 @@ def list_player_matches(
 
 @api.get("/players/{puuid}/report")
 def player_report(puuid: str, db: Any = Depends(get_db_dep)):
-    report = ReportBuilder().build_player_report(puuid, db)
+    report = _services.report_builder.build_player_report(puuid, db)
     if report.get("status") == "empty":
         raise HTTPException(404, report.get("detail", "no player matches"))
     return report
@@ -257,7 +259,7 @@ def match_report(puuid: str, match_id: str, db: Any = Depends(get_db_dep)):
     doc = col.find_one({"player_puuid": puuid, "matchId": match_id})
     if not doc:
         raise HTTPException(404, "player_match not found")
-    return ReportBuilder().build_match_report(doc, db)
+    return _services.report_builder.build_match_report(doc, db)
 
 
 # ---------------------------------------------------------------------------

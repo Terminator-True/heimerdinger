@@ -123,7 +123,7 @@ class PipelineScreen(Screen):
             sys.path.insert(0, repo)
 
         from modules.config_manager import get_team
-        from modules.data.report_builder import ReportBuilder
+        from modules.composition import build_services
         from modules.llm.llm_advisor import LLMAdvisor
         from modules.db.connection import get_db
         from modules.logger import get_logger
@@ -150,7 +150,7 @@ class PipelineScreen(Screen):
         try:
             team = get_team(team_file)
             db = get_db(os.getenv("MONGO_URI"))
-            rb = ReportBuilder()
+            rb = build_services().report_builder
             advisor = LLMAdvisor(model=model)
 
         except Exception as exc:

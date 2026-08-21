@@ -117,9 +117,10 @@ class CoachScreen(Screen):
         from modules.llm.retrieval import retrieve_for_category
         from modules.llm.question_classifier import classify_question
         from modules.llm.prompt_engineer import PromptEngineer
+        from modules.composition import build_services
         from modules.db.connection import get_db
         from modules.logger import get_logger
-        from modules.data.report_builder import ReportBuilder, get_full_match, extract_rich_participant
+        from modules.data.report_builder import get_full_match, extract_rich_participant
         from rich.markup import escape
 
         logger = get_logger("tui.coach")
@@ -133,7 +134,7 @@ class CoachScreen(Screen):
 
             # 2. retrieve context from DB
             db = get_db(os.getenv("MONGO_URI"))
-            rb = ReportBuilder()
+            rb = build_services().report_builder
             passages = retrieve_for_category(
                 category_id=category_id,
                 role=self._role,
