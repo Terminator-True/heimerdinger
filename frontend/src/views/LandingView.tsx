@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ingestPlayer, type ApiError } from '../lib/api'
+import { errorCopy, INGEST_TIMEOUT_COPY } from '../lib/errorCopy'
 import { useAppStore } from '../stores/appStore'
 import { Skeleton } from '../components/Skeleton'
 
@@ -25,20 +26,9 @@ export function validateCount(raw: string): CountResult {
   return n
 }
 
-function errorCopy(err: ApiError): string {
-  switch (err.kind) {
-    case 'timeout':
-      return 'La búsqueda tardó demasiado. El jugador quizás ya se esté procesando; probá de nuevo en unos minutos.'
-    case 'network':
-      return 'No hay conexión con el backend. Verificá que esté corriendo.'
-    case 'server':
-      return 'El servidor no pudo procesar la solicitud. Probá de nuevo.'
-    case 'auth':
-      return 'Se requiere una API key. Configurala en Ajustes.'
-    default:
-      return 'Ocurrió un error inesperado.'
-  }
-}
+// Fields this form actually renders; validation errors for anything else
+// (schema-fail payloads, server-side-only keys) go to the form-level banner.
+const RENDERED_FIELDS = ['riotid', 'count']
 
 export function LandingView() {
   const navigate = useNavigate()
@@ -49,6 +39,7 @@ export function LandingView() {
   const [inFlight, setInFlight] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const abortRef = useRef<AbortController | null>(null)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -69,25 +60,49 @@ export function LandingView() {
     }
 
     setInFlight(true)
+    abortRef.current = new AbortController()
     try {
-      const res = await ingestPlayer({
-        riotId: riotIdTrimmed,
-        count,
-        region,
-        regionRep,
-      })
+      const res = await ingestPlayer(
+        {
+          riotId: riotIdTrimmed,
+          count,
+          region,
+          regionRep,
+        },
+        { signal: abortRef.current.signal },
+      )
       navigate(`/player/${encodeURIComponent(res.puuid)}`)
     } catch (err) {
-      const apiErr = err as ApiError
-      if (apiErr.kind === 'validation') {
-        setFieldErrors(apiErr.fieldErrors)
+      if (abortRef.current?.signal.aborted) {
+        // User cancelled — back to a clean form, no error copy.
       } else {
-        setFormError(errorCopy(apiErr))
+        const apiErr = err as ApiError
+        if (apiErr.kind === 'validation') {
+          const known: Record<string, string> = {}
+          const orphans: string[] = []
+          for (const [key, msg] of Object.entries(apiErr.fieldErrors)) {
+            if (RENDERED_FIELDS.includes(key)) known[key] = msg
+            else orphans.push(msg)
+          }
+          setFieldErrors(known)
+          if (orphans.length > 0) setFormError(orphans.join(' '))
+        } else {
+          setFormError(
+            apiErr.kind === 'timeout'
+              ? INGEST_TIMEOUT_COPY
+              : errorCopy(apiErr),
+          )
+        }
       }
       // Stay on `/`: failure never navigates.
     } finally {
       setInFlight(false)
+      abortRef.current = null
     }
+  }
+
+  function onCancel() {
+    abortRef.current?.abort()
   }
 
   return (
@@ -156,6 +171,13 @@ export function LandingView() {
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-10 w-full" />
           <Skeleton className="h-10 w-3/4" />
+          <button
+            type="button"
+            onClick={onCancel}
+            className="self-start rounded border border-slate-800 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Cancelar
+          </button>
         </div>
       )}
     </main>

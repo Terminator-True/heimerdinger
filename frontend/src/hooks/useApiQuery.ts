@@ -28,15 +28,18 @@ interface QueryResult<T> {
 
 // Generic 4-state data hook (loading|error|empty|success). The fetcher runs
 // whenever `deps` change or retry() is called; stale responses are dropped.
-// not_found errors map to empty here — views never special-case 404s.
+// `opts.enabled === false` skips the request entirely (zero fetches) — used to
+// gate on inputs like a missing puuid.
 export function useApiQuery<T>(
   fetcher: () => Promise<T>,
   deps: DependencyList,
+  opts?: { enabled?: boolean },
 ): QueryResult<T> {
   const [state, setState] = useState<QueryState<T>>({ phase: 'loading' })
   const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
+    if (opts?.enabled === false) return
     let cancelled = false
     setState({ phase: 'loading' })
     fetcher()
@@ -68,7 +71,7 @@ export function useApiQuery<T>(
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetcher identity changes per render; deps are the contract
-  }, [...deps, attempt])
+  }, [...deps, attempt, opts?.enabled])
 
   const retry = useCallback(() => setAttempt((n) => n + 1), [])
   return { state, retry }

@@ -1,11 +1,13 @@
 // Match history row card + pure derivations shared by the dashboard.
+import { fmtValue } from '../../lib/format'
 
 export interface MatchRow {
   matchId: string
   championName?: string
   role?: string
   timestamp?: number | null
-  win?: boolean
+  // Schema passthrough extra: boolean when present, null = unknown.
+  win?: boolean | null
   parsed_metrics: Record<string, unknown>
 }
 
@@ -17,11 +19,6 @@ export function deriveWin(row: MatchRow): boolean | null {
     return row.parsed_metrics.win
   }
   return null
-}
-
-function fmtValue(v: unknown): string {
-  if (v === undefined || v === null || v === '') return '—'
-  return String(v)
 }
 
 // Durations arrive as seconds; format m:ss. Invalid/missing → em-dash.

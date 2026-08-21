@@ -133,4 +133,21 @@ describe('useApiQuery', () => {
     }
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
+
+  it('skips the fetch entirely when enabled is false (zero requests)', async () => {
+    const fetcher = vi.fn(() => Promise.resolve({ n: 1 }))
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useApiQuery(fetcher, [], { enabled }),
+      { initialProps: { enabled: false } },
+    )
+
+    rerender({ enabled: false })
+    expect(fetcher).not.toHaveBeenCalled()
+
+    // Flipping to true fires the request exactly once.
+    rerender({ enabled: true })
+    await waitFor(() => expect(result.current.state.phase).toBe('success'))
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
 })

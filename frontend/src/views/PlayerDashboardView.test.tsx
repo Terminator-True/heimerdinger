@@ -253,6 +253,24 @@ describe('match history section', () => {
   })
 })
 
+// --- Empty puuid guard ---
+
+describe('empty puuid guard', () => {
+  it('fires zero fetches when the puuid param is empty', async () => {
+    render(
+      <MemoryRouter initialEntries={['/player/']}>
+        <Routes>
+          <Route path="/player/:puuid?" element={<PlayerDashboardView />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() =>
+      expect(mockReport).not.toHaveBeenCalled(),
+    )
+    expect(mockMatches).not.toHaveBeenCalled()
+  })
+})
+
 // --- Detail modal ---
 
 describe('match detail modal', () => {

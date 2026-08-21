@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   DEFAULT_TIMEOUT_MS,
   COACH_TIMEOUT_MS,
+  INGEST_TIMEOUT_MS,
   request,
   getRoot,
   getHealth,
@@ -118,6 +119,22 @@ const EMBEDDING_QUERY_OK = {
   hits: [{ id: 'h1', document: 'doc', metadata: {}, distance: 0.5 }],
 }
 
+// Simulates the real timeout path: the timer aborts the signal and fetch
+// rejects with an AbortError DOMException — must NOT surface as network.
+function rejectOnAbort(): void {
+  fetchMock.mockImplementation(
+    (url: string, init?: FakeInit) =>
+      new Promise((_resolve, reject) => {
+        lastUrl = url
+        lastInit = init
+        lastSignal = init?.signal as unknown as AbortSignal | undefined
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('The operation was aborted.', 'AbortError')),
+        )
+      }),
+  )
+}
+
 describe('error mapping', () => {
   it('maps 422 detail[] to fieldErrors keyed by the last string loc segment', async () => {
     respond(
@@ -178,19 +195,6 @@ describe('error mapping', () => {
     fetchMock.mockRejectedValue(new TypeError('network down'))
     await expect(getHealth()).rejects.toMatchObject({ kind: 'network' })
   })
-
-  // Simulates the real timeout path: the timer aborts the signal and fetch
-  // rejects with an AbortError DOMException — must NOT surface as network.
-  function rejectOnAbort(): void {
-    fetchMock.mockImplementation(
-      (_url: string, init?: FakeInit) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () =>
-            reject(new DOMException('The operation was aborted.', 'AbortError')),
-          )
-        }),
-    )
-  }
 
   it('maps an abort-triggered fetch rejection to timeout with the default budget', async () => {
     vi.useFakeTimers()
@@ -377,24 +381,55 @@ describe('timeout arming policy', () => {
     await expect(promise).resolves.toEqual(HEALTH_OK)
   })
 
-  it('never arms an abort for ingestPlayer', async () => {
+  // Ingest gets a GENEROUS hard cap, not "no cap": a hung backend must
+  // surface as a timeout instead of a promise that never settles.
+  it('arms INGEST_TIMEOUT_MS on ingestPlayer and surfaces a timeout past the cap', async () => {
     vi.useFakeTimers()
-    const h = hangFetch()
-    const promise = ingestPlayer({ riotId: 'Nombre#TAG' })
-    await vi.advanceTimersByTimeAsync(600_000)
+    rejectOnAbort()
+    const promise = ingestPlayer({ riotId: 'Nombre#TAG' }).catch(
+      (e: ApiError) => e,
+    )
+    await vi.advanceTimersByTimeAsync(INGEST_TIMEOUT_MS - 1)
     expect(lastSignal?.aborted).toBe(false)
-    h.settle({ ok: true, status: 200, json: async () => INGEST_PLAYER_OK })
-    await expect(promise).resolves.toEqual(INGEST_PLAYER_OK)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(lastSignal?.aborted).toBe(true)
+    expect(await promise).toEqual({
+      kind: 'timeout',
+      timeoutMs: INGEST_TIMEOUT_MS,
+    })
   })
 
-  it('never arms an abort for ingestTeam', async () => {
+  it('arms INGEST_TIMEOUT_MS on ingestTeam and surfaces a timeout past the cap', async () => {
     vi.useFakeTimers()
-    const h = hangFetch()
-    const promise = ingestTeam({})
-    await vi.advanceTimersByTimeAsync(600_000)
+    rejectOnAbort()
+    const promise = ingestTeam({}).catch((e: ApiError) => e)
+    await vi.advanceTimersByTimeAsync(INGEST_TIMEOUT_MS - 1)
     expect(lastSignal?.aborted).toBe(false)
-    h.settle({ ok: true, status: 200, json: async () => INGEST_TEAM_OK })
-    await expect(promise).resolves.toEqual(INGEST_TEAM_OK)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(lastSignal?.aborted).toBe(true)
+    expect(await promise).toEqual({
+      kind: 'timeout',
+      timeoutMs: INGEST_TIMEOUT_MS,
+    })
+  })
+
+  it('passes an external signal through to ingestPlayer so callers can cancel', async () => {
+    vi.useFakeTimers()
+    rejectOnAbort()
+    const ac = new AbortController()
+    const promise = ingestPlayer({ riotId: 'Nombre#TAG' }, { signal: ac.signal }).catch(
+      (e: ApiError) => e,
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(lastSignal?.aborted).toBe(false)
+    ac.abort()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(lastSignal?.aborted).toBe(true)
+    // External cancel is NOT a timeout budget expiry.
+    expect(await promise).not.toEqual({
+      kind: 'timeout',
+      timeoutMs: INGEST_TIMEOUT_MS,
+    })
   })
 
   it('uses 120s for /coach — survives the 15s default, aborts at 120s', async () => {

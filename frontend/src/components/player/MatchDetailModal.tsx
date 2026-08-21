@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { getPlayerMatchReport } from '../../lib/api'
 import { useApiQuery } from '../../hooks/useApiQuery'
+import { errorCopy } from '../../lib/errorCopy'
+import { fmtValue } from '../../lib/format'
 import { Skeleton } from '../Skeleton'
 
 interface MatchDetailModalProps {
@@ -16,11 +18,6 @@ function Stat({ label, value }: { label: string; value: string }) {
       <dd className="text-sm font-medium text-slate-100">{value}</dd>
     </div>
   )
-}
-
-function fmtValue(v: unknown): string {
-  if (v === undefined || v === null || v === '') return '—'
-  return String(v)
 }
 
 // Fully independent query state: opening one modal never disturbs the
@@ -76,7 +73,7 @@ export function MatchDetailModal({ puuid, matchId, onClose }: MatchDetailModalPr
 
         {state.phase === 'error' && (
           <p className="mt-4 text-sm text-red-400">
-            Detalle de partida no disponible
+            {errorCopy(state.error)}
             {' '}
             <button
               type="button"

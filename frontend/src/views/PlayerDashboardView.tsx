@@ -1,40 +1,31 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { getPlayerMatches, getPlayerReport, type ApiError } from '../lib/api'
+import { z } from 'zod'
+import { getPlayerMatches, getPlayerReport } from '../lib/api'
 import { useApiQuery, type QueryState } from '../hooks/useApiQuery'
+import { errorCopy } from '../lib/errorCopy'
+import { fmtValue } from '../lib/format'
+import { playerMatchSchema } from '../schemas/endpoints'
 import { Skeleton } from '../components/Skeleton'
 import { ErrorState } from '../components/ErrorState'
 import { EmptyState } from '../components/EmptyState'
-import { MatchCard, type MatchRow } from '../components/player/MatchCard'
+import { MatchCard } from '../components/player/MatchCard'
 import { MatchDetailModal } from '../components/player/MatchDetailModal'
 
 type ReportData = Awaited<ReturnType<typeof getPlayerReport>>
+
+// Schema-derived history row: schema fields are required, `win` arrives as an
+// untyped passthrough extra (boolean | null when present).
+type MatchRow = z.output<typeof playerMatchSchema> & {
+  win?: boolean | null
+}
+
+const MATCH_HISTORY_LIMIT = 20
 
 // Error-variant reports (status/detail) parse OK but carry no payload;
 // they surface as empty, not success.
 function isFullReport(d: ReportData): d is Extract<ReportData, { games_analyzed: number }> {
   return 'games_analyzed' in d
-}
-
-function fmtValue(v: unknown): string {
-  if (v === undefined || v === null || v === '') return '—'
-  return String(v)
-}
-
-// Mirrors LandingView error copy; kept local to avoid a cross-view import.
-function errorCopy(err: ApiError): string {
-  switch (err.kind) {
-    case 'timeout':
-      return 'La consulta tardó demasiado. Probá de nuevo.'
-    case 'network':
-      return 'No hay conexión con el backend. Verificá que esté corriendo.'
-    case 'server':
-      return 'El servidor no pudo procesar la solicitud. Probá de nuevo.'
-    case 'auth':
-      return 'Se requiere una API key. Configurala en Ajustes.'
-    default:
-      return 'Ocurrió un error inesperado.'
-  }
 }
 
 interface MetricRowProps {
@@ -99,7 +90,7 @@ function MatchHistory({
   retry,
   onViewDetails,
 }: {
-  state: QueryState<Array<Record<string, unknown>>>
+  state: QueryState<MatchRow[]>
   retry: () => void
   onViewDetails: (matchId: string) => void
 }) {
@@ -120,7 +111,7 @@ function MatchHistory({
   }
   return (
     <div className="flex flex-col gap-3">
-      {(state.data as unknown as MatchRow[]).map((row) => (
+      {state.data.map((row) => (
         <MatchCard key={row.matchId} row={row} onViewDetails={onViewDetails} />
       ))}
     </div>
@@ -129,8 +120,17 @@ function MatchHistory({
 
 export function PlayerDashboardView() {
   const { puuid = '' } = useParams()
-  const report = useApiQuery(() => getPlayerReport(puuid), [puuid])
-  const matches = useApiQuery(() => getPlayerMatches(puuid, 20), [puuid])
+  // enabled gate: hooks must NOT fire before the puuid guard, or empty-puuid
+  // renders would hit /players//report.
+  const report = useApiQuery(() => getPlayerReport(puuid), [puuid], {
+    enabled: puuid !== '',
+  })
+  const matches = useApiQuery(
+    async () =>
+      (await getPlayerMatches(puuid, MATCH_HISTORY_LIMIT)) as MatchRow[],
+    [puuid],
+    { enabled: puuid !== '' },
+  )
   const [openMatchId, setOpenMatchId] = useState<string | null>(null)
 
   if (!puuid) return null
