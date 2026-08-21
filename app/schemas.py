@@ -33,7 +33,7 @@ class IngestTeamRequest(BaseModel):
 class CoachRequest(BaseModel):
     question: str
     role: Optional[str] = None
-    model: str = "llama3.1:8b"
+    model: str = "qwen2.5:14b"
     last_match: bool = False
     lang: str = "es"
     history: Optional[List[Dict[str, Any]]] = None

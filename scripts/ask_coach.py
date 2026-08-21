@@ -38,17 +38,18 @@ from modules.coaching.prompt_builder import CoachingPromptBuilder
 # ------------------------------------------------------------------
 
 def _find_report_for_role(db, role: str, limit: int = 3) -> List[Dict[str, Any]]:
-    """Fetch most recent reports matching a role."""
+    """Fetch most recent reports matching a role (any role when empty)."""
     try:
         col = db.get_collection("reports")
-        docs = list(col.find({"role": role}).sort("_id", -1).limit(limit))
+        filter_q = {"role": role} if role else {}
+        docs = list(col.find(filter_q).sort("_id", -1).limit(limit))
         return docs
     except Exception:
         try:
             col = db.setdefault("reports", {})
             out = []
             for d in col.values():
-                if d.get("role") == role:
+                if not role or d.get("role") == role:
                     out.append(d)
             return out[:limit]
         except Exception:
@@ -115,12 +116,18 @@ def _build_last_match_report(db, role: str, puuid: Optional[str] = None) -> Dict
 
 
 def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
-    """Fetch the most recent aggregate report for this role."""
+    """Fetch the most recent aggregate report for this role.
+
+    Prefers multi-game aggregate reports (games_analyzed > 1); falls back to
+    the latest report of any kind — the `reports` collection also stores
+    per-match reports written by build_match_report.
+    """
     logger = get_logger()
     try:
-        docs = _find_report_for_role(db, role, limit=1)
+        docs = _find_report_for_role(db, role, limit=5)
         if docs:
-            return docs[0]
+            aggregates = [d for d in docs if isinstance(d.get("games_analyzed"), int) and d["games_analyzed"] > 1]
+            return (aggregates or docs)[0]
         logger.warning("No aggregate reports found for role=%s", role)
     except Exception as e:
         logger.exception("_build_aggregate_report failed: %s", e)
@@ -186,7 +193,7 @@ def _semantic_passages(question: str, role: Optional[str], threshold: float) -> 
 
 def ask_coach(question: str,
               role: Optional[str] = None,
-              model: str = "llama3.1:8b",
+              model: str = "qwen2.5:14b",
               last_match: bool = False,
               lang: str = "es",
               history: Optional[List[Dict]] = None):
@@ -216,12 +223,11 @@ def ask_coach(question: str,
     if last_match:
         # last_match=True is out of scope for the semantic-primary reorder
         # (CoachingPromptBuilder has no `passages` param) — unchanged behavior.
-        if role:
-            logger.info("Running retrieval recipe for category=%s role=%s last_match=%s",
-                         cat.get("category_id"), role, last_match)
-            passages = retrieve_for_category(cat.get("category_id"), role, db,
-                                             limit=5, last_match=last_match)
-            logger.info("Recipe returned %d passages", len(passages))
+        logger.info("Running retrieval recipe for category=%s role=%s last_match=%s",
+                    cat.get("category_id"), role, last_match)
+        passages = retrieve_for_category(cat.get("category_id"), role, db,
+                                         limit=5, last_match=last_match)
+        logger.info("Recipe returned %d passages", len(passages))
 
         if not passages:
             logger.info("Falling back to embedding-based retrieval")
@@ -257,11 +263,11 @@ def ask_coach(question: str,
         threshold = float(embeddings_config.get("distance_threshold", 1.0))
         semantic_passages = _semantic_passages(question, role, threshold)
 
-        structured_passages: List[str] = []
-        if role:
-            structured_passages = retrieve_for_category(
-                cat.get("category_id"), role, db, limit=5, last_match=last_match
-            )
+        # retrieve_for_category accepts role=None ("accept any") — the web UI
+        # never sends a role, so structured stats must not be skipped here.
+        structured_passages = retrieve_for_category(
+            cat.get("category_id"), role, db, limit=5, last_match=last_match
+        )
 
         passages = semantic_passages + structured_passages
         logger.info("Merged passages: %d semantic + %d structured",
@@ -372,7 +378,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--question", required=True)
     parser.add_argument("--role", required=False)
-    parser.add_argument("--model", default="llama3.1:8b")
+    parser.add_argument("--model", default="qwen2.5:14b")
     parser.add_argument("--last-match", action="store_true",
                         help="Retrieve context only from the latest match")
     parser.add_argument("--lang", default="es",
