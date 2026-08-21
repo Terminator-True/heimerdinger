@@ -28,10 +28,13 @@ class FakeCol:
     def find_one(self, filt):
         puuid = filt.get("player_puuid")
         match_id = filt.get("matchId")
+        meta_mid = (filt.get("metadata") or {}).get("matchId")
         for d in self.docs:
             if puuid and d.get("player_puuid") != puuid:
                 continue
             if match_id and d.get("matchId") != match_id:
+                continue
+            if meta_mid and (d.get("metadata") or {}).get("matchId") != meta_mid:
                 continue
             return d
         return None
@@ -224,6 +227,95 @@ def test_coach_wires_ask_coach(client):
 def test_embeddings_query_requires_query_field(client):
     # Missing required `query` field -> pydantic validation error.
     r = client.post("/embeddings/query", json={"top_k": 5})
+    assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+#  gold endpoints
+# ---------------------------------------------------------------------------
+
+class FakeGoldItemClient:
+    def resolve_version(self, game_version):
+        return "14.10.1"
+
+    def get_items_by_ids(self, ids, version=None):
+        return {}
+
+
+def _set_raw_match(override_db, match):
+    override_db._cols["matches"] = FakeCol([match])
+
+
+def _gold_match(mid="m1"):
+    return {
+        "metadata": {"matchId": mid},
+        "info": {
+            "gameVersion": "14.10.1",
+            "participants": [
+                {"puuid": "p1", "summonerName": "A", "teamId": 100, "teamPosition": "MID",
+                 "goldEarned": 12000, "goldSpent": 11500, "itemsPurchased": 10,
+                 "consumablesPurchased": 2, "win": True, "item0": 1001, "item1": 1055,
+                 "timestamp": 1700000000000, "championName": "Ahri",
+                 "challenges": {"goldPerMinute": 420}},
+            ],
+        },
+    }
+
+
+def test_player_gold_matches_returns_rows(client, override_db):
+    override_db._cols["player_matches"] = FakeCol([
+        {"player_puuid": "p1", "matchId": "m1", "role": "MID"},
+    ])
+    _set_raw_match(override_db, _gold_match())
+    with patch("modules.data.gold_analysis._get_item_client", return_value=FakeGoldItemClient()):
+        r = client.get("/players/p1/gold/matches")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["matchId"] == "m1"
+    assert body[0]["goldEarned"] == 12000
+    assert body[0]["gold_diff"] == 500
+
+
+def test_player_gold_report_aggregates(client, override_db):
+    override_db._cols["player_matches"] = FakeCol([
+        {"player_puuid": "p1", "matchId": "m1", "role": "MID"},
+        {"player_puuid": "p1", "matchId": "m2", "role": "MID"},
+    ])
+    _set_raw_match(override_db, _gold_match())
+    override_db._cols["matches"].docs.append(_gold_match("m2"))
+    with patch("modules.data.gold_analysis._get_item_client", return_value=FakeGoldItemClient()):
+        r = client.get("/players/p1/gold/report")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["games_analyzed"] == 2
+    assert body["wins"] == 2
+    assert body["goldEarned"] == 12000  # mean
+
+
+def test_player_gold_report_empty_404(client):
+    r = client.get("/players/nobody/gold/report")
+    assert r.status_code == 404
+
+
+def test_match_gold_returns_participants(client, override_db):
+    _set_raw_match(override_db, _gold_match())
+    with patch("modules.data.gold_analysis._get_item_client", return_value=FakeGoldItemClient()):
+        r = client.get("/matches/m1/gold")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matchId"] == "m1"
+    assert len(body["players"]) == 1
+    assert body["players"][0]["goldEarned"] == 12000
+
+
+def test_match_gold_not_found(client):
+    r = client.get("/matches/nope/gold")
+    assert r.status_code == 404
+
+
+def test_gold_validation_limits_limit(client):
+    r = client.get("/players/p1/gold/matches", params={"limit": 0})
     assert r.status_code == 422
 
 

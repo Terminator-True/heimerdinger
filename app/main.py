@@ -281,6 +281,48 @@ def match_snapshot(match_id: str, db: Any = Depends(get_db_dep)):
 
 
 # ---------------------------------------------------------------------------
+#  gold
+# ---------------------------------------------------------------------------
+
+@api.get("/players/{puuid}/gold/matches")
+def player_gold_matches(
+    puuid: str,
+    limit: int = Query(20, ge=1, le=100),
+    db: Any = Depends(get_db_dep),
+):
+    """Oro ganado/gastado por partida, items comprados (nombre, valor, stats)."""
+    from modules.data.gold_analysis import get_player_gold_rows
+
+    return _clean(get_player_gold_rows(db, puuid, limit=limit))
+
+
+@api.get("/players/{puuid}/gold/report")
+def player_gold_report(
+    puuid: str,
+    limit: int = Query(20, ge=1, le=100),
+    db: Any = Depends(get_db_dep),
+):
+    """Agregado (mean/median/p25/p75) del oro sobre las ultimas partidas."""
+    from modules.data.gold_analysis import aggregate_gold, get_player_gold_rows
+
+    rows = get_player_gold_rows(db, puuid, limit=limit)
+    if not rows:
+        raise HTTPException(404, "no matches found for player")
+    return _clean(aggregate_gold(rows))
+
+
+@api.get("/matches/{match_id}/gold")
+def match_gold(match_id: str, db: Any = Depends(get_db_dep)):
+    """Oro + items de los 10 participantes de una partida (comparacion por equipo)."""
+    from modules.data.gold_analysis import gold_rows_for_match
+
+    match = get_full_match(db, match_id)
+    if not match:
+        raise HTTPException(404, "match not found")
+    return _clean({"matchId": match_id, "players": gold_rows_for_match(match)})
+
+
+# ---------------------------------------------------------------------------
 #  coach
 # ---------------------------------------------------------------------------
 
