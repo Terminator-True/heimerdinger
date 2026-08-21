@@ -4,7 +4,10 @@ from statistics import mean, median
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from modules.adapters.file_output import LocalFileOutput
+from modules.adapters.report_repository import ReportRepository
 from modules.logger import get_logger
+from modules.ports import FileOutputPort, ReportRepositoryPort
 
 logger = get_logger(__name__)
 
@@ -250,8 +253,12 @@ class ReportBuilder:
         report = rb.build_player_report(player_puuid, db, pro_reference=None)
     """
 
-    def __init__(self, output_dir: Optional[str] = "reports"):
+    def __init__(self, output_dir: Optional[str] = "reports",
+                 report_repo: Optional["ReportRepositoryPort"] = None,
+                 file_output: Optional["FileOutputPort"] = None):
         self.output_dir = Path(output_dir)
+        self._report_repo = report_repo
+        self._file_output = file_output
 
     # ------------------------------------------------------------------
     #  helpers
@@ -427,23 +434,14 @@ class ReportBuilder:
     # ------------------------------------------------------------------
 
     def save_report(self, report: Dict[str, Any], db) -> None:
+        repo = self._report_repo if self._report_repo is not None else ReportRepository(db)
+        out = self._file_output if self._file_output is not None else LocalFileOutput(str(self.output_dir))
         try:
-            col = db.get_collection("reports")
+            repo.upsert_report(report)
         except Exception:
-            col = db.setdefault("reports", {})
-
+            pass
         try:
-            filter_q = {"player": report.get("player")}
-            col.update_one(filter_q, {"$set": report}, upsert=True)
-        except Exception:
-            if isinstance(col, dict):
-                col[report.get("player")] = report
-
-        try:
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-            out_path = self.output_dir / f"{report.get('player')}.json"
-            with out_path.open("w", encoding="utf-8") as fh:
-                json.dump(report, fh, ensure_ascii=False, indent=2)
+            out.write_report(report, f"{report.get('player')}.json")
         except Exception:
             pass
 
@@ -467,22 +465,12 @@ class ReportBuilder:
                 'role': match_doc.get('role') or parsed.get('role'),
             }
 
-            # save to DB
+            # save to DB and disk behind ports
+            repo = self._report_repo if self._report_repo is not None else ReportRepository(db)
+            out = self._file_output if self._file_output is not None else LocalFileOutput(str(self.output_dir))
+            repo.upsert_report(report)
             try:
-                col = db.get_collection('reports')
-                col.update_one({'player': report.get('player'), 'matchId': report.get('matchId')},
-                               {'$set': report}, upsert=True)
-            except Exception:
-                rcol = db.setdefault('reports', {})
-                rcol[f"{report.get('player')}_{report.get('matchId')}"] = report
-
-            # persist to disk
-            out_dir = self.output_dir
-            out_dir.mkdir(parents=True, exist_ok=True)
-            out_path = out_dir / f"{report.get('player')}_{report.get('matchId')}.json"
-            try:
-                with out_path.open('w', encoding='utf-8') as fh:
-                    json.dump(report, fh, ensure_ascii=False, indent=2)
+                out.write_report(report, f"{report.get('player')}_{report.get('matchId')}.json")
             except Exception:
                 pass
 
