@@ -4,6 +4,8 @@ import { SettingsProvider } from './components/settings/SettingsProvider'
 import { Placeholder } from './components/Placeholder'
 import { LandingView } from './views/LandingView'
 import { PlayerDashboardView } from './views/PlayerDashboardView'
+import { GoldReportView } from './views/GoldReportView'
+import { MatchDetailView } from './views/MatchDetailView'
 
 export default function App() {
   return (
@@ -16,11 +18,11 @@ export default function App() {
             <Route path="/player/:puuid" element={<PlayerDashboardView />} />
             <Route
               path="/player/:puuid/gold"
-              element={<Placeholder title="Reporte de oro" />}
+              element={<GoldReportView />}
             />
             <Route
               path="/matches/:matchId"
-              element={<Placeholder title="Detalle de partida" />}
+              element={<MatchDetailView />}
             />
             <Route path="/coach" element={<Placeholder title="Coach IA" />} />
             <Route path="/team" element={<Placeholder title="Equipo" />} />
