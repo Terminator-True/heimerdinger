@@ -46,4 +46,10 @@ describe('route smoke check — all SPA views mount', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: heading })).toBeTruthy()
   })
+
+  it('redirects unknown paths to /', () => {
+    window.history.pushState({}, '', '/nonexistent')
+    render(<App />)
+    expect(screen.getByRole('heading', { name: 'Buscar jugador' })).toBeTruthy()
+  })
 })
