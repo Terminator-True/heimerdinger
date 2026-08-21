@@ -1,0 +1,16 @@
+{
+  "champion": "Yone",
+  "games_analyzed": 1,
+  "matchId": "ANON-MATCH-0001",
+  "metrics": {
+    "ch_goldPerMinute": 426.0,
+    "ch_killParticipation": 0.18,
+    "cs_per_min": 6.0,
+    "goldEarned": 14500,
+    "kda": 3.0,
+    "totalDamageDealtToChampions": 28500,
+    "visionScore": 25
+  },
+  "player": "synthetic-puuid-0001",
+  "role": "Top"
+}

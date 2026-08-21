@@ -1,0 +1,12 @@
+Equipo 1:
+Jugador: Anon Top | Rol: TOP | Campeón: Yone | KDA: 8/10/3 | CS@10: 54 | GPM: 426 | DPM: 727 | Visión: 25 | Victoria: No
+Jugador: Anon Jungle | Rol: JUNGLE | Campeón: Lee Sin | KDA: 3/5/12 | CS@10: 20 | GPM: 380 | DPM: 420 | Visión: 18 | Victoria: No
+Jugador: Anon Mid | Rol: MIDDLE | Campeón: Ahri | KDA: 5/6/7 | CS@10: 48 | GPM: 405 | DPM: 510 | Visión: 15 | Victoria: No
+Jugador: Anon Bot | Rol: BOTTOM | Campeón: Kai'Sa | KDA: 6/7/4 | CS@10: 62 | GPM: 430 | DPM: 560 | Visión: 12 | Victoria: No
+Jugador: Anon Support | Rol: UTILITY | Campeón: Nautilus | KDA: 1/9/11 | CS@10: 5 | GPM: 260 | DPM: 210 | Visión: 40 | Victoria: No
+Equipo 2:
+Jugador: Anon Garen | Rol: TOP | Campeón: Garen | KDA: 7/4/6 | CS@10: 50 | GPM: 420 | DPM: 500 | Visión: 14 | Victoria: Sí
+Jugador: Anon Vi | Rol: JUNGLE | Campeón: Vi | KDA: 4/3/14 | CS@10: 25 | GPM: 390 | DPM: 450 | Visión: 22 | Victoria: Sí
+Jugador: Anon Syndra | Rol: MIDDLE | Campeón: Syndra | KDA: 6/3/8 | CS@10: 52 | GPM: 445 | DPM: 620 | Visión: 16 | Victoria: Sí
+Jugador: Anon Caitlyn | Rol: BOTTOM | Campeón: Caitlyn | KDA: 9/2/7 | CS@10: 66 | GPM: 480 | DPM: 700 | Visión: 13 | Victoria: Sí
+Jugador: Anon Thresh | Rol: UTILITY | Campeón: Thresh | KDA: 0/5/16 | CS@10: 3 | GPM: 240 | DPM: 180 | Visión: 45 | Victoria: Sí

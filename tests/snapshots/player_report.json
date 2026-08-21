@@ -1,0 +1,32 @@
+{
+  "champion": "Yone",
+  "deltas": {},
+  "games_analyzed": 3,
+  "metrics": {
+    "ch_goldPerMinute": 438.0,
+    "ch_goldPerMinute_median": 438.0,
+    "ch_goldPerMinute_p25": 432.0,
+    "ch_goldPerMinute_p75": 444.0,
+    "ch_killParticipation": 0.193,
+    "ch_killParticipation_median": 0.19,
+    "ch_killParticipation_p25": 0.185,
+    "ch_killParticipation_p75": 0.2,
+    "cs_per_min": 6.2,
+    "goldEarned": 14833.333,
+    "goldEarned_median": 14800.0,
+    "goldEarned_p25": 14650.0,
+    "goldEarned_p75": 15000.0,
+    "kda": 3.1,
+    "totalDamageDealtToChampions": 29266.667,
+    "totalDamageDealtToChampions_median": 29200.0,
+    "totalDamageDealtToChampions_p25": 28850.0,
+    "totalDamageDealtToChampions_p75": 29650.0,
+    "visionScore": 23.667,
+    "visionScore_median": 24.0,
+    "visionScore_p25": 23.0,
+    "visionScore_p75": 24.5
+  },
+  "player": "synthetic-puuid-0001",
+  "pro_reference": null,
+  "role": "Top"
+}
