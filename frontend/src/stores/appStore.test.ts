@@ -17,8 +17,18 @@ describe('appStore', () => {
       currentPuuid: '',
       currentRiotId: '',
       region: 'europe',
-      region_rep: 'europe',
+      regionRep: 'europe',
     })
+  })
+
+  it('setRegion writes BOTH region and regionRep in isolation', () => {
+    useAppStore.getState().setRegion('americas')
+    expect(useAppStore.getState()).toMatchObject({
+      region: 'americas',
+      regionRep: 'americas',
+    })
+    const saved = persisted()
+    expect(saved).toEqual({ region: 'americas', regionRep: 'americas' })
   })
 
   it('setters update each field', () => {
@@ -40,7 +50,7 @@ describe('appStore', () => {
     useAppStore.getState().setRegionRep('asia')
 
     const saved = persisted()
-    expect(saved).toEqual({ region: 'asia', region_rep: 'asia' })
+    expect(saved).toEqual({ region: 'asia', regionRep: 'asia' })
     expect(JSON.stringify(saved)).not.toContain('secret-puuid')
   })
 })

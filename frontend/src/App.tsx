@@ -1,6 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
-import { SettingsProvider } from './components/SettingsDialog'
+import { SettingsProvider } from './components/settings/SettingsProvider'
 import { Placeholder } from './components/Placeholder'
 
 export default function App() {

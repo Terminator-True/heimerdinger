@@ -44,7 +44,6 @@ describe('useHealthPoll', () => {
     await waitFor(() => expect(result.current.status).toBe('online'))
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(String(fetchMock.mock.calls[0]![0])).toContain('/health')
-    vi.unstubAllGlobals()
   })
 
   it('re-polls every 30 seconds', async () => {
@@ -58,7 +57,6 @@ describe('useHealthPoll', () => {
       await vi.advanceTimersByTimeAsync(POLL_MS)
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
-    vi.unstubAllGlobals()
   })
 
   it('survives a network failure and shows offline', async () => {
@@ -75,7 +73,6 @@ describe('useHealthPoll', () => {
       await vi.advanceTimersByTimeAsync(POLL_MS)
     })
     await waitFor(() => expect(result.current.status).toBe('online'))
-    vi.unstubAllGlobals()
   })
 
   it('flags degraded when mongodb is false in a healthy response', async () => {
@@ -88,6 +85,5 @@ describe('useHealthPoll', () => {
 
     const { result } = renderHook(() => useHealthPoll())
     await waitFor(() => expect(result.current.status).toBe('degraded'))
-    vi.unstubAllGlobals()
   })
 })

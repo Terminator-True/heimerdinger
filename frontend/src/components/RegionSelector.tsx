@@ -4,7 +4,7 @@ const REGIONS = ['europe', 'americas', 'asia'] as const
 
 export function RegionSelector() {
   const region = useAppStore((s) => s.region)
-  const regionRep = useAppStore((s) => s.region_rep)
+  const regionRep = useAppStore((s) => s.regionRep)
   const setRegion = useAppStore((s) => s.setRegion)
   const setRegionRep = useAppStore((s) => s.setRegionRep)
 

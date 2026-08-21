@@ -8,7 +8,7 @@ export function classifyHealth(
   httpStatus: number | null,
   mongodb: boolean | null,
 ): HealthStatus {
-  if (httpStatus === null || !httpStatus.toString().startsWith('2')) {
+  if (httpStatus === null || httpStatus < 200 || httpStatus >= 300) {
     return 'offline'
   }
   return mongodb === true ? 'online' : 'degraded'

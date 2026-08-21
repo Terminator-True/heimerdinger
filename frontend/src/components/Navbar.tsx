@@ -1,7 +1,7 @@
 import { Settings } from 'lucide-react'
 import { HealthDot } from './HealthDot'
 import { RegionSelector } from './RegionSelector'
-import { useSettings } from './SettingsDialog'
+import { useSettings } from './settings/SettingsProvider'
 
 export function Navbar() {
   const { openDialog } = useSettings()

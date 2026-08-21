@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --forbidOnly"
   },
   "dependencies": {
     "lucide-react": "^1.33.0",

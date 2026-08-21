@@ -1,3 +1,4 @@
+// ponytail: consumed by WU2+ data views (design §hook pattern)
 interface EmptyStateProps {
   message: string
 }
