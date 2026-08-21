@@ -6,11 +6,10 @@ that implements `generate(prompt: str, model: str = None) -> dict`.
 from typing import Dict, Any, Optional
 import json
 import re
-import os
-from datetime import datetime, timezone
 
 from .ollama_client import OllamaClient
 from .prompt_engineer import PromptEngineer
+from modules.adapters.file_output import LocalFileOutput
 from modules.logger import get_logger
 
 logger = get_logger()
@@ -19,9 +18,11 @@ logger = get_logger()
 class LLMAdvisor:
     """Produce coaching advice using an LLM backend and a prompt engineer."""
 
-    def __init__(self, client: OllamaClient = None, engineer: PromptEngineer = None):
+    def __init__(self, client: OllamaClient = None, engineer: PromptEngineer = None,
+                 file_output=None):
         self.client = client or OllamaClient()
         self.engineer = engineer or PromptEngineer()
+        self.file_output = file_output or LocalFileOutput()
         # Lazy/cached embedder and vector store instances to avoid re-loading
         # the model and DB on every advise() call which is expensive.
         try:
@@ -86,17 +87,7 @@ class LLMAdvisor:
         # Persist raw Ollama response and the exact prompt for debugging if we can identify the player
         try:
             if puuid:
-                out_dir = os.path.join("reports", "ollama_responses")
-                os.makedirs(out_dir, exist_ok=True)
-                ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-                fname = os.path.join(out_dir, f"{puuid}.txt")
-                with open(fname, "w", encoding="utf-8") as f:
-                    f.write(f"# captured_at: {ts}\n# model: {model}\n# prompt:\n")
-                    f.write(prompt + "\n\n# raw_response:\n")
-                    try:
-                        f.write(json.dumps(raw, ensure_ascii=False, indent=2))
-                    except Exception:
-                        f.write(str(raw))
+                self.file_output.write_ollama_response(puuid, prompt, raw, model)
         except Exception as e:
             # Never fail the advice flow due to logging to disk
             logger.warning("Failed to save raw Ollama response for %s: %s", puuid if puuid else '<unknown>', e)
