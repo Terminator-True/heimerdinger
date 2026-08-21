@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Navbar } from './components/Navbar'
 import { SettingsProvider } from './components/settings/SettingsProvider'
 import { Placeholder } from './components/Placeholder'
+import { LandingView } from './views/LandingView'
 
 export default function App() {
   return (
@@ -10,7 +11,7 @@ export default function App() {
         <div className="min-h-screen bg-slate-950 text-slate-100">
           <Navbar />
           <Routes>
-            <Route path="/" element={<Placeholder title="Inicio" />} />
+            <Route path="/" element={<LandingView />} />
             <Route
               path="/player/:puuid"
               element={<Placeholder title="Jugador" />}
