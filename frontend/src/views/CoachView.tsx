@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { askCoach } from '../lib/api'
 import type { ApiError } from '../lib/api'
+import { errorCopy, COACH_TIMEOUT_COPY, COACH_SERVER_COPY } from '../lib/errorCopy'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -12,49 +13,62 @@ const QUICK_PROMPTS = [
   '¿Cómo mejorar mi early game?',
 ]
 
-// Coach-specific error copy. The server string is untrusted and responses are
-// rendered as plain text (whitespace-pre-wrap) — never via dangerouslySetInnerHTML.
+// Reuse the shared errorCopy; only the coach-specific timeout/server branches
+// differ (see LandingView for the same override pattern). The server string is
+// untrusted and responses are rendered as plain text (whitespace-pre-wrap) —
+// never via dangerouslySetInnerHTML.
 function coachErrorCopy(err: ApiError): string {
-  switch (err.kind) {
-    case 'timeout':
-      return 'Ollama tardó demasiado. Probá de nuevo.'
-    case 'server':
-      return 'Verificá que Ollama esté corriendo localmente.'
-    case 'auth':
-      return 'Se requiere una API key. Configurala en Ajustes.'
-    case 'network':
-      return 'No hay conexión con el backend. Verificá que esté corriendo.'
-    default:
-      return 'Ocurrió un error inesperado.'
-  }
+  if (err.kind === 'timeout') return COACH_TIMEOUT_COPY
+  if (err.kind === 'server') return COACH_SERVER_COPY
+  return errorCopy(err)
 }
 
 export function CoachView() {
   const [messages, setMessages] = useState<Message[]>([])
-  const [history, setHistory] = useState<Message[]>([])
+  const [pendingQuestion, setPendingQuestion] = useState<string | null>(null)
   const [input, setInput] = useState('')
   const [lastMatch, setLastMatch] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Derive request history from the single messages array: only committed
+  // user/assistant turns. A failed user turn lives in pendingQuestion, never
+  // here, so retry does not duplicate it.
+  const history = messages.filter(
+    (m) => m.role === 'user' || m.role === 'assistant',
+  )
+
+  useEffect(() => {
+    return () => abortRef.current?.abort()
+  }, [])
 
   async function send(question: string) {
     const trimmed = question.trim()
     if (trimmed === '' || busy) return
     setError(null)
     setBusy(true)
-    const userMsg: Message = { role: 'user', content: trimmed }
-    setMessages((m) => [...m, userMsg])
-    setHistory((h) => [...h, userMsg])
     setInput('')
+    const controller = new AbortController()
+    abortRef.current = controller
     try {
-      const data = await askCoach({ question: trimmed, lastMatch, history })
+      const data = await askCoach(
+        { question: trimmed, lastMatch, history },
+        { signal: controller.signal },
+      )
+      const userMsg: Message = { role: 'user', content: trimmed }
       const assistantMsg: Message = { role: 'assistant', content: data.response }
-      setMessages((m) => [...m, assistantMsg])
-      setHistory((h) => [...h, assistantMsg])
+      // Only on success do we commit the user turn + assistant response.
+      setMessages((m) => [...m, userMsg, assistantMsg])
+      setPendingQuestion(null)
     } catch (err) {
-      // Prior conversation stays intact on error.
-      setError(coachErrorCopy(err as ApiError))
+      if (!controller.signal.aborted) {
+        // Keep the failed turn out of messages/history; stash it for retry.
+        setPendingQuestion(trimmed)
+        setError(coachErrorCopy(err as ApiError))
+      }
     } finally {
+      if (abortRef.current === controller) abortRef.current = null
       setBusy(false)
     }
   }
@@ -92,10 +106,10 @@ export function CoachView() {
       {error !== null && (
         <div className="flex items-center justify-between gap-4 rounded border border-red-900 bg-red-950 p-3">
           <p className="text-sm text-red-400">{error}</p>
-          {history.length > 0 && (
+          {pendingQuestion !== null && (
             <button
               type="button"
-              onClick={() => void send(history[history.length - 1]!.content)}
+              onClick={() => void send(pendingQuestion)}
               className="rounded border border-slate-800 px-3 py-1 text-sm text-amber-500 hover:bg-slate-800"
             >
               Reintentar

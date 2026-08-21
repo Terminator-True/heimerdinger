@@ -287,14 +287,17 @@ export function getGoldReport(
   return get(`/players/${encodeURIComponent(puuid)}/gold/report${qs}`, aggregateGoldSchema)
 }
 
-export function askCoach(params: {
-  question: string
-  role?: string
-  model?: string
-  lastMatch?: boolean
-  lang?: string
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>
-}): Promise<z.output<typeof coachResponseSchema>> {
+export function askCoach(
+  params: {
+    question: string
+    role?: string
+    model?: string
+    lastMatch?: boolean
+    lang?: string
+    history?: Array<{ role: 'user' | 'assistant'; content: string }>
+  },
+  opts?: { signal?: AbortSignal },
+): Promise<z.output<typeof coachResponseSchema>> {
   return request('/coach', {
     method: 'POST',
     body: {
@@ -307,6 +310,7 @@ export function askCoach(params: {
     },
     schema: coachResponseSchema,
     timeoutMs: COACH_TIMEOUT_MS,
+    ...(opts?.signal ? { signal: opts.signal } : {}),
   })
 }
 

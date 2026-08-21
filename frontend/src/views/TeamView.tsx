@@ -1,10 +1,12 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { getTeam, ingestTeam, type ApiError } from '../lib/api'
 import { useApiQuery } from '../hooks/useApiQuery'
 import { errorCopy } from '../lib/errorCopy'
 import { PanelSkeleton } from '../components/PanelSkeleton'
 import { ErrorState } from '../components/ErrorState'
 import { EmptyState } from '../components/EmptyState'
+
+const DEFAULT_TEAM_PATH = 'team.json'
 
 type RosterRow = Awaited<ReturnType<typeof getTeam>>[number]
 type IngestPlayer = Awaited<ReturnType<typeof ingestTeam>>['players'][number]
@@ -14,10 +16,10 @@ function isSuccess(p: IngestPlayer): p is IngestPlayer & { error?: undefined } {
 }
 
 export function TeamView() {
-  const roster = useApiQuery(() => getTeam('team.json'), [])
-  const [teamPath, setTeamPath] = useState('team.json')
+  const roster = useApiQuery(() => getTeam(DEFAULT_TEAM_PATH), [])
+  const [teamPath, setTeamPath] = useState(DEFAULT_TEAM_PATH)
   const [busy, setBusy] = useState(false)
-  const [abortRef, setAbortRef] = useState<AbortController | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const [result, setResult] = useState<IngestPlayer[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -25,28 +27,31 @@ export function TeamView() {
     e.preventDefault()
     if (busy) return
     const controller = new AbortController()
-    setAbortRef(controller)
+    abortRef.current = controller
     setBusy(true)
     setError(null)
     setResult(null)
     try {
       const data = await ingestTeam({ teamPath }, { signal: controller.signal })
       setResult(data.players)
+      roster.retry()
     } catch (err) {
       // Caller abort surfaces as network per api.ts; a user cancel is not an
       // error, so report it as a neutral notice instead.
       setError(controller.signal.aborted ? 'Ingesta cancelada.' : errorCopy(err as ApiError))
     } finally {
       setBusy(false)
-      setAbortRef(null)
+      abortRef.current = null
     }
   }
 
   function onCancel() {
-    abortRef?.abort()
+    abortRef.current?.abort()
   }
 
   const ok = (result ?? []).filter(isSuccess)
+  // ponytail: one malformed row drops the whole list; per-row tolerant schema
+  // if the backend ever emits mixed shapes.
   const failed = (result ?? []).filter((p) => !isSuccess(p))
 
   return (

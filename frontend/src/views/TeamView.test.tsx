@@ -107,4 +107,19 @@ describe('team ingest form', () => {
       ).toBe(false),
     )
   })
+
+  it('refreshes the roster after a successful ingest', async () => {
+    mockGetTeam.mockResolvedValue(ROSTER)
+    mockIngest.mockResolvedValue({ team_puuids_resolved: 1, players: [] })
+    renderView()
+    await screen.findByText('PlayerA#NA1')
+    const callsBefore = mockGetTeam.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: /ingestar equipo/i }))
+    await screen.findByText('No se procesaron jugadores.')
+
+    await waitFor(() =>
+      expect(mockGetTeam.mock.calls.length).toBeGreaterThan(callsBefore),
+    )
+  })
 })

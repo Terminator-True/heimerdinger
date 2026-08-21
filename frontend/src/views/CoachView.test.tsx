@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 
 vi.mock('../lib/api', () => ({
   askCoach: vi.fn(),
@@ -104,5 +104,73 @@ describe('coach chat', () => {
     fireEvent.click(screen.getByRole('button', { name: /en qué fallé/i }))
     await screen.findByText('respuesta')
     expect(mockAsk.mock.calls[0]![0].question).toContain('fallé')
+  })
+
+  it('sends the failed question ONCE in the retry body and shows it once in the list', async () => {
+    mockAsk
+      .mockRejectedValueOnce({ kind: 'server', status: 502 })
+      .mockResolvedValueOnce({ response: 'ok' })
+    renderView()
+    typeAndSend('Pregunta duplicada?')
+    // Error banner appears; the failed question is NOT in the message list yet.
+    expect(
+      await screen.findByText('Verificá que Ollama esté corriendo localmente.'),
+    ).toBeTruthy()
+    expect(screen.queryByText('Pregunta duplicada?')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /reintentar/i }))
+    await screen.findByText('ok')
+
+    expect(mockAsk).toHaveBeenCalledTimes(2)
+    // Retry body sends the question exactly once, history unchanged (still empty).
+    expect(mockAsk.mock.calls[1]![0].question).toBe('Pregunta duplicada?')
+    expect(mockAsk.mock.calls[1]![0].history).toEqual([])
+    // Message list shows the question exactly once.
+    expect(screen.getAllByText('Pregunta duplicada?')).toHaveLength(1)
+  })
+
+  it('does not dispatch a second request while busy', async () => {
+    let resolveAsk: (v: unknown) => void
+    mockAsk.mockReturnValue(
+      new Promise((resolve) => {
+        resolveAsk = resolve
+      }) as never,
+    )
+    renderView()
+    typeAndSend('Primera')
+    expect(screen.getByText('El coach está pensando…')).toBeTruthy()
+    typeAndSend('Segunda')
+    expect(mockAsk).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveAsk!({ response: 'listo' })
+    })
+  })
+
+  it('aborts the in-flight fetch on unmount', async () => {
+    mockAsk.mockImplementation(
+      (_params: unknown, opts?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const onAbort = () => reject(new DOMException('aborted', 'AbortError'))
+          opts?.signal?.addEventListener('abort', onAbort, { once: true })
+        }),
+    )
+    const { unmount } = renderView()
+    typeAndSend('Pregunta')
+    expect(mockAsk).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      unmount()
+    })
+    expect(mockAsk.mock.calls[0]![1]?.signal?.aborted).toBe(true)
+  })
+
+  it('renders a hostile coach response as escaped text, never as an element', async () => {
+    const hostile = '<img src=x onerror=alert(1)>'
+    mockAsk.mockResolvedValue({ response: hostile })
+    renderView()
+    typeAndSend('Hola')
+    expect(await screen.findByText(hostile)).toBeTruthy()
+    expect(document.querySelector('img')).toBeNull()
   })
 })
