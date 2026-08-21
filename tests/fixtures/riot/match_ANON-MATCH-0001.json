@@ -1,0 +1,257 @@
+{
+  "metadata": {
+    "matchId": "ANON-MATCH-0001",
+    "dataVersion": "2",
+    "participants": [
+      "synthetic-puuid-0001",
+      "synthetic-puuid-0002",
+      "synthetic-puuid-0003",
+      "synthetic-puuid-0004",
+      "synthetic-puuid-0005",
+      "synthetic-puuid-0006",
+      "synthetic-puuid-0007",
+      "synthetic-puuid-0008",
+      "synthetic-puuid-0009",
+      "synthetic-puuid-0010"
+    ]
+  },
+  "info": {
+    "gameVersion": "14.20.568.9039",
+    "gameDuration": 1800,
+    "gameMode": "CLASSIC",
+    "queueId": 420,
+    "participants": [
+      {
+        "puuid": "synthetic-puuid-0001",
+        "summonerName": "Anon Top",
+        "championName": "Yone",
+        "teamPosition": "TOP",
+        "individualPosition": "TOP",
+        "win": false,
+        "teamId": 100,
+        "kills": 8,
+        "deaths": 10,
+        "assists": 3,
+        "totalMinionsKilled": 210,
+        "goldEarned": 14500,
+        "goldSpent": 14000,
+        "totalDamageDealtToChampions": 28500,
+        "visionScore": 25,
+        "wardsPlaced": 12,
+        "detectorWardsPlaced": 2,
+        "totalTimeSpentDead": 329,
+        "longestTimeSpentLiving": 235,
+        "summoner1Id": 12,
+        "summoner2Id": 4,
+        "item0": 3866,
+        "item1": 2524,
+        "item2": 3009,
+        "item3": 3067,
+        "item4": 1028,
+        "item5": 0,
+        "item6": 3364,
+        "challenges": {
+          "kda": 0.89,
+          "killParticipation": 0.18,
+          "goldPerMinute": 426,
+          "damagePerMinute": 727,
+          "teamDamagePercentage": 0.136,
+          "laneMinionsFirst10Minutes": 54,
+          "maxCsAdvantageOnLaneOpponent": 12,
+          "turretPlatesTaken": 2,
+          "soloTurretsLategame": 1,
+          "firstTurretKilledTime": 1200,
+          "visionScoreAdvantageLaneOpponent": 2.1,
+          "controlWardsPlaced": 1,
+          "visionScorePerMinute": 0.94
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0002",
+        "summonerName": "Anon Jungle",
+        "championName": "Lee Sin",
+        "teamPosition": "JUNGLE",
+        "individualPosition": "JUNGLE",
+        "win": false,
+        "teamId": 100,
+        "kills": 3,
+        "deaths": 5,
+        "assists": 12,
+        "visionScore": 18,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 20,
+          "goldPerMinute": 380,
+          "damagePerMinute": 420
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0003",
+        "summonerName": "Anon Mid",
+        "championName": "Ahri",
+        "teamPosition": "MIDDLE",
+        "individualPosition": "MIDDLE",
+        "win": false,
+        "teamId": 100,
+        "kills": 5,
+        "deaths": 6,
+        "assists": 7,
+        "visionScore": 15,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 48,
+          "goldPerMinute": 405,
+          "damagePerMinute": 510
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0004",
+        "summonerName": "Anon Bot",
+        "championName": "Kai'Sa",
+        "teamPosition": "BOTTOM",
+        "individualPosition": "BOTTOM",
+        "win": false,
+        "teamId": 100,
+        "kills": 6,
+        "deaths": 7,
+        "assists": 4,
+        "visionScore": 12,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 62,
+          "goldPerMinute": 430,
+          "damagePerMinute": 560
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0005",
+        "summonerName": "Anon Support",
+        "championName": "Nautilus",
+        "teamPosition": "UTILITY",
+        "individualPosition": "UTILITY",
+        "win": false,
+        "teamId": 100,
+        "kills": 1,
+        "deaths": 9,
+        "assists": 11,
+        "visionScore": 40,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 5,
+          "goldPerMinute": 260,
+          "damagePerMinute": 210
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0006",
+        "summonerName": "Anon Garen",
+        "championName": "Garen",
+        "teamPosition": "TOP",
+        "individualPosition": "TOP",
+        "win": true,
+        "teamId": 200,
+        "kills": 7,
+        "deaths": 4,
+        "assists": 6,
+        "visionScore": 14,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 50,
+          "goldPerMinute": 420,
+          "damagePerMinute": 500
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0007",
+        "summonerName": "Anon Vi",
+        "championName": "Vi",
+        "teamPosition": "JUNGLE",
+        "individualPosition": "JUNGLE",
+        "win": true,
+        "teamId": 200,
+        "kills": 4,
+        "deaths": 3,
+        "assists": 14,
+        "visionScore": 22,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 25,
+          "goldPerMinute": 390,
+          "damagePerMinute": 450
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0008",
+        "summonerName": "Anon Syndra",
+        "championName": "Syndra",
+        "teamPosition": "MIDDLE",
+        "individualPosition": "MIDDLE",
+        "win": true,
+        "teamId": 200,
+        "kills": 6,
+        "deaths": 3,
+        "assists": 8,
+        "visionScore": 16,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 52,
+          "goldPerMinute": 445,
+          "damagePerMinute": 620
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0009",
+        "summonerName": "Anon Caitlyn",
+        "championName": "Caitlyn",
+        "teamPosition": "BOTTOM",
+        "individualPosition": "BOTTOM",
+        "win": true,
+        "teamId": 200,
+        "kills": 9,
+        "deaths": 2,
+        "assists": 7,
+        "visionScore": 13,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 66,
+          "goldPerMinute": 480,
+          "damagePerMinute": 700
+        }
+      },
+      {
+        "puuid": "synthetic-puuid-0010",
+        "summonerName": "Anon Thresh",
+        "championName": "Thresh",
+        "teamPosition": "UTILITY",
+        "individualPosition": "UTILITY",
+        "win": true,
+        "teamId": 200,
+        "kills": 0,
+        "deaths": 5,
+        "assists": 16,
+        "visionScore": 45,
+        "challenges": {
+          "laneMinionsFirst10Minutes": 3,
+          "goldPerMinute": 240,
+          "damagePerMinute": 180
+        }
+      }
+    ],
+    "teams": [
+      {
+        "teamId": 100,
+        "win": false,
+        "objectives": {
+          "baron": { "kills": 1, "first": true },
+          "dragon": { "kills": 3, "first": true },
+          "tower": { "kills": 8, "first": true },
+          "inhibitor": { "kills": 1, "first": false },
+          "riftHerald": { "kills": 1, "first": true }
+        }
+      },
+      {
+        "teamId": 200,
+        "win": true,
+        "objectives": {
+          "baron": { "kills": 2, "first": false },
+          "dragon": { "kills": 4, "first": false },
+          "tower": { "kills": 10, "first": false },
+          "inhibitor": { "kills": 2, "first": true },
+          "riftHerald": { "kills": 0, "first": false }
+        }
+      }
+    ]
+  }
+}
