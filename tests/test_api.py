@@ -129,8 +129,8 @@ def test_player_report_empty_returns_404(client):
 
 
 def test_player_report_built(client):
-    with patch("app.main.ReportBuilder") as mock_rb:
-        mock_rb.return_value.build_player_report.return_value = {
+    with patch("app.main._services.report_builder") as mock_rb:
+        mock_rb.build_player_report.return_value = {
             "player": "p1", "games_analyzed": 3, "metrics": {"kda": 2.5},
         }
         r = client.get("/players/p1/report")
@@ -151,8 +151,8 @@ def test_match_report_found(client, override_db):
         {"_id": ObjectId("000000000000000000000002"), "player_puuid": "p1",
          "matchId": "m1", "championName": "Ahri", "parsed_metrics": {"kills": 5}},
     ]
-    with patch("app.main.ReportBuilder") as mock_rb:
-        mock_rb.return_value.build_match_report.return_value = {"player": "p1", "matchId": "m1"}
+    with patch("app.main._services.report_builder") as mock_rb:
+        mock_rb.build_match_report.return_value = {"player": "p1", "matchId": "m1"}
         r = client.get("/players/p1/matches/m1/report")
     assert r.status_code == 200
     assert r.json()["matchId"] == "m1"

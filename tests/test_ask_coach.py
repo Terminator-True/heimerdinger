@@ -15,9 +15,9 @@ REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-import pytest
+import pytest  # noqa: E402
 
-import modules.coaching.service as coach_service
+import modules.coaching.service as coach_service  # noqa: E402
 
 
 class FakeDB:
@@ -73,7 +73,9 @@ def patched_ask_coach(monkeypatch):
 def test_last_match_false_merges_semantic_and_structured(monkeypatch, patched_ask_coach):
     svc, fake_pe = patched_ask_coach
 
-    monkeypatch.setattr(coach_service, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"])
+    monkeypatch.setattr(
+        coach_service, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"]
+    )
 
     class FakeEmbedder:
         def embed_texts(self, texts):
@@ -98,7 +100,9 @@ def test_last_match_false_merges_semantic_and_structured(monkeypatch, patched_as
 def test_last_match_false_empty_store_falls_back_to_structured_only(monkeypatch, patched_ask_coach):
     svc, fake_pe = patched_ask_coach
 
-    monkeypatch.setattr(coach_service, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"])
+    monkeypatch.setattr(
+        coach_service, "retrieve_for_category", lambda *a, **k: ["structured: cs=5.2"]
+    )
 
     class FakeEmbedder:
         def embed_texts(self, texts):

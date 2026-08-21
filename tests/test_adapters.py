@@ -2,13 +2,10 @@
 
 import json
 
-import pytest
-
 from modules.adapters.file_output import LocalFileOutput
 from modules.adapters.json_config import JsonConfigSource
 from modules.adapters.report_repository import ReportRepository
 from modules.ports import (
-    ConfigSourcePort,
     FileOutputPort,
     RateLimiterPort,
     ReportRepositoryPort,
