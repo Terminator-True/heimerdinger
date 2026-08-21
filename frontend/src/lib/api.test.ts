@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   DEFAULT_TIMEOUT_MS,
   COACH_TIMEOUT_MS,
+  INGEST_TIMEOUT_MS,
   request,
   getRoot,
   getHealth,
@@ -95,8 +96,43 @@ const INGEST_PLAYER_OK = {
 }
 const COACH_OK = { response: 'play safe' }
 const INGEST_TEAM_OK = { team_puuids_resolved: 2, players: [{ riotid: 'a#1' }] }
+// VERIFIED backend report shapes (report_builder.py / build_match_report).
+// Success has NO status field — empty arrives as HTTP 404.
+const PLAYER_REPORT_OK = {
+  player: 'Nombre#TAG',
+  role: null,
+  champion: null,
+  games_analyzed: 12,
+  metrics: { kda: 3.1 },
+  pro_reference: null,
+  deltas: { kda: 0.5 },
+}
+const MATCH_REPORT_OK = {
+  player: null,
+  matchId: null,
+  champion: 'Ahri',
+  games_analyzed: 1,
+  metrics: {},
+  role: null,
+}
 const EMBEDDING_QUERY_OK = {
   hits: [{ id: 'h1', document: 'doc', metadata: {}, distance: 0.5 }],
+}
+
+// Simulates the real timeout path: the timer aborts the signal and fetch
+// rejects with an AbortError DOMException — must NOT surface as network.
+function rejectOnAbort(): void {
+  fetchMock.mockImplementation(
+    (url: string, init?: FakeInit) =>
+      new Promise((_resolve, reject) => {
+        lastUrl = url
+        lastInit = init
+        lastSignal = init?.signal as unknown as AbortSignal | undefined
+        init?.signal?.addEventListener('abort', () =>
+          reject(new DOMException('The operation was aborted.', 'AbortError')),
+        )
+      }),
+  )
 }
 
 describe('error mapping', () => {
@@ -159,19 +195,6 @@ describe('error mapping', () => {
     fetchMock.mockRejectedValue(new TypeError('network down'))
     await expect(getHealth()).rejects.toMatchObject({ kind: 'network' })
   })
-
-  // Simulates the real timeout path: the timer aborts the signal and fetch
-  // rejects with an AbortError DOMException — must NOT surface as network.
-  function rejectOnAbort(): void {
-    fetchMock.mockImplementation(
-      (_url: string, init?: FakeInit) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () =>
-            reject(new DOMException('The operation was aborted.', 'AbortError')),
-          )
-        }),
-    )
-  }
 
   it('maps an abort-triggered fetch rejection to timeout with the default budget', async () => {
     vi.useFakeTimers()
@@ -254,10 +277,10 @@ describe('success path', () => {
     respond([])
     await getPlayerMatches('p1')
     expect(lastUrl).toBe('http://localhost:8000/players/p1/matches')
-    respond({ status: 'full' })
+    respond(PLAYER_REPORT_OK)
     await getPlayerReport('p1')
     expect(lastUrl).toBe('http://localhost:8000/players/p1/report')
-    respond({})
+    respond(MATCH_REPORT_OK)
     await getPlayerMatchReport('p1', 'm1')
     expect(lastUrl).toBe('http://localhost:8000/players/p1/matches/m1/report')
     respond({ 100: ['Ahri'] })
@@ -358,24 +381,55 @@ describe('timeout arming policy', () => {
     await expect(promise).resolves.toEqual(HEALTH_OK)
   })
 
-  it('never arms an abort for ingestPlayer', async () => {
+  // Ingest gets a GENEROUS hard cap, not "no cap": a hung backend must
+  // surface as a timeout instead of a promise that never settles.
+  it('arms INGEST_TIMEOUT_MS on ingestPlayer and surfaces a timeout past the cap', async () => {
     vi.useFakeTimers()
-    const h = hangFetch()
-    const promise = ingestPlayer({ riotId: 'Nombre#TAG' })
-    await vi.advanceTimersByTimeAsync(600_000)
+    rejectOnAbort()
+    const promise = ingestPlayer({ riotId: 'Nombre#TAG' }).catch(
+      (e: ApiError) => e,
+    )
+    await vi.advanceTimersByTimeAsync(INGEST_TIMEOUT_MS - 1)
     expect(lastSignal?.aborted).toBe(false)
-    h.settle({ ok: true, status: 200, json: async () => INGEST_PLAYER_OK })
-    await expect(promise).resolves.toEqual(INGEST_PLAYER_OK)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(lastSignal?.aborted).toBe(true)
+    expect(await promise).toEqual({
+      kind: 'timeout',
+      timeoutMs: INGEST_TIMEOUT_MS,
+    })
   })
 
-  it('never arms an abort for ingestTeam', async () => {
+  it('arms INGEST_TIMEOUT_MS on ingestTeam and surfaces a timeout past the cap', async () => {
     vi.useFakeTimers()
-    const h = hangFetch()
-    const promise = ingestTeam({})
-    await vi.advanceTimersByTimeAsync(600_000)
+    rejectOnAbort()
+    const promise = ingestTeam({}).catch((e: ApiError) => e)
+    await vi.advanceTimersByTimeAsync(INGEST_TIMEOUT_MS - 1)
     expect(lastSignal?.aborted).toBe(false)
-    h.settle({ ok: true, status: 200, json: async () => INGEST_TEAM_OK })
-    await expect(promise).resolves.toEqual(INGEST_TEAM_OK)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(lastSignal?.aborted).toBe(true)
+    expect(await promise).toEqual({
+      kind: 'timeout',
+      timeoutMs: INGEST_TIMEOUT_MS,
+    })
+  })
+
+  it('passes an external signal through to ingestPlayer so callers can cancel', async () => {
+    vi.useFakeTimers()
+    rejectOnAbort()
+    const ac = new AbortController()
+    const promise = ingestPlayer({ riotId: 'Nombre#TAG' }, { signal: ac.signal }).catch(
+      (e: ApiError) => e,
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(lastSignal?.aborted).toBe(false)
+    ac.abort()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(lastSignal?.aborted).toBe(true)
+    // External cancel is NOT a timeout budget expiry.
+    expect(await promise).not.toEqual({
+      kind: 'timeout',
+      timeoutMs: INGEST_TIMEOUT_MS,
+    })
   })
 
   it('uses 120s for /coach — survives the 15s default, aborts at 120s', async () => {
@@ -449,9 +503,9 @@ describe('schema registry shapes', () => {
   })
 
   it('accepts nullable report champion/role and ingest-team error entries', async () => {
-    respond({ status: 'full', champion: null, role: null })
+    respond({ ...PLAYER_REPORT_OK, champion: null, role: null })
     const report = await getPlayerReport('p1')
-    expect(report.status).toBe('full')
+    expect(report.champion).toBeNull()
 
     respond({
       team_puuids_resolved: 1,
@@ -459,6 +513,30 @@ describe('schema registry shapes', () => {
     })
     const team = await ingestTeam({})
     expect(team.players[0]?.error).toBe('summoner not found')
+  })
+
+  it('parses the verified player report success payload (no status field)', async () => {
+    respond(PLAYER_REPORT_OK)
+    const data = await getPlayerReport('p1')
+    expect(data.player).toBe('Nombre#TAG')
+    expect(data.games_analyzed).toBe(12)
+    expect(data.metrics).toEqual({ kda: 3.1 })
+    expect(data.deltas).toEqual({ kda: 0.5 })
+    expect(data.status).toBeUndefined()
+  })
+
+  it('parses the verified match report payload', async () => {
+    respond(MATCH_REPORT_OK)
+    await expect(getPlayerMatchReport('p1', 'm1')).resolves.toEqual(
+      MATCH_REPORT_OK,
+    )
+  })
+
+  it('tolerates a player report error variant carrying status/detail', async () => {
+    respond({ status: 'error', player: 'x', detail: 'y' })
+    await expect(getPlayerReport('p1')).resolves.toMatchObject({
+      status: 'error',
+    })
   })
 
   it('ignores unknown extra fields via passthrough', async () => {

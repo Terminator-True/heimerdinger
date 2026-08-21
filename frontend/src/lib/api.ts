@@ -21,6 +21,9 @@ import {
 
 export const DEFAULT_TIMEOUT_MS = 15_000
 export const COACH_TIMEOUT_MS = 120_000
+// Generous hard cap for sync ingestion (may legitimately run minutes), so a
+// hung backend surfaces as a timeout instead of a promise that never settles.
+export const INGEST_TIMEOUT_MS = 600_000
 
 // Thrown (not returned) on every failure; views/hook branch on `kind`.
 // not_found is normal control flow (404-as-empty), never a crash.
@@ -37,6 +40,7 @@ type RequestOpts = {
   body?: unknown
   schema: ZodType
   timeoutMs?: number
+  signal?: AbortSignal
 }
 
 // AbortController armed ONLY when timeoutMs is provided:
@@ -59,6 +63,20 @@ export async function request<S extends ZodType>(
     opts.timeoutMs !== undefined
       ? setTimeout(() => controller.abort(), opts.timeoutMs)
       : undefined
+  // Relay caller-provided aborts (e.g. a Cancel button) onto the internal
+  // controller so either the timeout or the caller can kill the fetch.
+  // The catch block checks opts.signal first: a caller cancel is NOT a
+  // timeout budget expiry.
+  const onCallerAbort = () => controller.abort()
+  if (opts.signal !== undefined) {
+    if (opts.signal.aborted) controller.abort()
+    else opts.signal.addEventListener('abort', onCallerAbort, { once: true })
+  }
+  const detachCaller = () => {
+    if (opts.signal !== undefined) {
+      opts.signal.removeEventListener('abort', onCallerAbort)
+    }
+  }
 
   let res: Response
   try {
@@ -70,7 +88,12 @@ export async function request<S extends ZodType>(
     if (opts.body !== undefined) init.body = JSON.stringify(opts.body)
     res = await fetch(getBaseUrl() + path, init)
   } catch {
+    detachCaller()
     if (timer !== undefined) clearTimeout(timer)
+    if (opts.signal?.aborted) {
+      // Caller cancelled — not a timeout, not a network failure.
+      throw { kind: 'network' } satisfies ApiError
+    }
     // The timer aborts the signal, then fetch rejects with an AbortError.
     // Surface that as `timeout` so views can distinguish a slow/inference
     // over-budget request from an offline backend (`network`).
@@ -111,6 +134,7 @@ export async function request<S extends ZodType>(
     }
     return parsed.data
   } finally {
+    detachCaller()
     if (timer !== undefined) clearTimeout(timer)
   }
 }
@@ -161,14 +185,17 @@ export function getTeam(teamPath: string): Promise<z.output<typeof teamRosterSch
   return get(`/team?team_path=${encodeURIComponent(teamPath)}`, teamRosterSchema)
 }
 
-export function ingestPlayer(params: {
-  riotId: string
-  count?: number
-  region?: string
-  regionRep?: string
-  teamPuuids?: string[]
-  minTeamMembers?: number
-}): Promise<z.output<typeof ingestPlayerSchema>> {
+export function ingestPlayer(
+  params: {
+    riotId: string
+    count?: number
+    region?: string
+    regionRep?: string
+    teamPuuids?: string[]
+    minTeamMembers?: number
+  },
+  opts?: { signal?: AbortSignal },
+): Promise<z.output<typeof ingestPlayerSchema>> {
   return request('/ingest/player', {
     method: 'POST',
     body: {
@@ -180,16 +207,20 @@ export function ingestPlayer(params: {
       min_team_members: params.minTeamMembers,
     },
     schema: ingestPlayerSchema,
-    // no timeoutMs: sync ingest may run minutes
+    timeoutMs: INGEST_TIMEOUT_MS,
+    ...(opts?.signal ? { signal: opts.signal } : {}),
   })
 }
 
-export function ingestTeam(params: {
-  teamPath?: string
-  count?: number
-  region?: string
-  regionRep?: string
-}): Promise<z.output<typeof ingestTeamSchema>> {
+export function ingestTeam(
+  params: {
+    teamPath?: string
+    count?: number
+    region?: string
+    regionRep?: string
+  },
+  opts?: { signal?: AbortSignal },
+): Promise<z.output<typeof ingestTeamSchema>> {
   return request('/ingest/team', {
     method: 'POST',
     body: {
@@ -199,7 +230,8 @@ export function ingestTeam(params: {
       region_rep: params.regionRep,
     },
     schema: ingestTeamSchema,
-    // no timeoutMs
+    timeoutMs: INGEST_TIMEOUT_MS,
+    ...(opts?.signal ? { signal: opts.signal } : {}),
   })
 }
 
