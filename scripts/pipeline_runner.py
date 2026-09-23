@@ -23,6 +23,7 @@ if REPO_ROOT not in sys.path:
 from modules.config_manager import get_team, get_focus_player
 from modules.ingest.lib import ingest_player, resolve_team_puuids
 from modules.data.report_builder import ReportBuilder
+from modules.data.pro_baseline import comparison_rows, load_pro_reference
 from modules.llm.llm_advisor import LLMAdvisor
 from modules.riot_api.client import RiotClient
 from modules.db.connection import get_db
@@ -92,9 +93,20 @@ def main():
                 mreport = rb.build_match_report(match, db)
                 console.print(f"[{mi}/{len(matches)}] Report saved: {mreport.get('player')} match={match.get('matchId')}")
         else:
-            report = rb.build_player_report(puuid, db)
+            # Pro benchmark for this role (Oracle's Elixir baseline), if imported.
+            pro_ref = (load_pro_reference(db, role) if role else {}) or None
+            report = rb.build_player_report(puuid, db, pro_reference=pro_ref)
             console.print(f"Report for {riotid}: {report['games_analyzed']} games analyzed; champion: {report['champion']}")
             logger.info("Report built for %s: %s games", riotid, report['games_analyzed'])
+
+            if pro_ref:
+                gaps = [r for r in comparison_rows(report.get("metrics") or {}, pro_ref)
+                        if r.get("pct") is not None and r["pct"] < 0][:3]
+                for gap in gaps:
+                    console.print(
+                        f"  [yellow]vs pro[/yellow] {gap['metric']}: "
+                        f"{gap['player']:.2f} vs {gap['pro']:.2f} ({gap['pct']:+.1f}%)"
+                    )
 
 
 if __name__ == "__main__":

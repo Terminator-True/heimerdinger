@@ -65,4 +65,31 @@ analiza por defecto, no elimina la capacidad por rol.
 - TDD: modo no configurado (sin cache `sdd-init`); se aplican checks funcionales + tests unitarios.
 
 ## Progreso
-- Creada rama `feat/focus-support`, doc de tareas. Pendiente slice A.
+- **Slice A — COMMITEADO** (`4716b16`, 366 líneas autoradas):
+  - `get_focus_player()` + `FOCUS_RIOTID`/`FOCUS_ROLE` en `.env.example` (verificado ejecutando
+    la función con env vacío/lleno).
+  - `players` collection (riotid→puuid) en la ingesta + `resolve_focus_puuid()` offline-first.
+  - `ask_coach` acotado por jugador (`player` / `player_puuid`) + `--puuid`/`--focus`;
+    `CoachRequest.puuid` y `/coach` lo propagan.
+  - `pipeline_runner --focus` ingesta SIN el gate de equipo de 5.
+  - Tests: `tests/test_config_manager.py` (9) + 3 tests de scoping en `tests/test_ask_coach.py`.
+- **Slice B — IMPLEMENTADO, SIN COMMITEAR** (~990 líneas: 880 nuevos + 112 modificados):
+  - `modules/data/pro_baseline.py` (471), `scripts/import_pro_baseline.py` (125),
+    `tests/test_pro_baseline.py` (284), wiring en `prompt_engineer`/`ask_coach`/`pipeline_runner`,
+    README.
+  - Gatekeeper encontró y corrigió un defecto real: el mapa OE apuntaba a claves inexistentes
+    (`totalDamageDealtToChampions`), dejando la comparativa vacía. Ahora hay
+    `METRIC_KEY_ALIASES` + `comparison_rows` reference-driven (verificado: 4 filas reales,
+    `wardsKilled` correctamente descartado por no existir del lado jugador).
+  - Checks: self-check stdlib `OK`, `py_compile OK`, pytest **bloqueado** (sin pip/venv/deps).
+
+## Delivery — RESUELTO
+Acumulado autorado ≈ **1350 líneas** (A 366 + B ~990), por encima del budget de 400 por PR.
+Decisión del usuario: **commit local en `feat/focus-support` ahora, PRs se deciden después**.
+Sin push/PR/merge: siguen siendo decisión del usuario. Cuando se abran PRs habrá que partir
+(ningún tramo de B entra en 400 líneas sin subdividir).
+
+## Seguimiento (fuera de este change)
+- La comparativa pro todavía NO se inyecta en la ruta última-partida
+  (`CoachingPromptBuilder`), solo en la agregada (`PromptEngineer`).
+- `wardsPerMinute` no existe como clave en nuestros reportes → no compara (correcto: sin inventar).

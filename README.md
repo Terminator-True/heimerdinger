@@ -83,6 +83,33 @@ python scripts/ask_coach.py --question "Analiza mi rendimiento como support" --r
 python -m tui.app
 ```
 
+### 4. Modo single-player (focus)
+
+Definí `FOCUS_RIOTID` (`Nombre#Tagline`) y, opcionalmente, `FOCUS_ROLE` (por defecto `Support`) en `.env` para limitar la ingesta y el coaching a un único jugador:
+
+```bash
+FOCUS_RIOTID="TR Terminator#1998"
+FOCUS_ROLE=Support
+```
+
+```bash
+# Ingesta y reporte solo del jugador configurado (sin filtro de equipo)
+python scripts/pipeline_runner.py --focus --games 20
+
+# El coach toma el focus del entorno automáticamente
+python scripts/ask_coach.py --question "¿Qué mejoro como support?"
+```
+
+### 5. Pro benchmark (Oracle's Elixir)
+
+Compará el rendimiento del jugador contra un benchmark de jugadores profesionales por rol, a partir del dataset público de [Oracle's Elixir](https://oracleselixir.com/tools/downloads). Descargá el CSV de la temporada y generá el baseline:
+
+```bash
+python scripts/import_pro_baseline.py --csv <file> --position sup --year 2025
+```
+
+El baseline queda en `config/pro_baseline.json` y, si hay MongoDB disponible, en la colección `pro_baselines`. El pipeline y el coach lo usan automáticamente para agregar la comparación "vs pro" a los reportes; si no existe, todo sigue funcionando sin comparación.
+
 ---
 
 ## API (FastAPI)

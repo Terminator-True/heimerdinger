@@ -6,6 +6,8 @@ Usage:
 """
 from typing import Dict, Optional, List
 
+from modules.data.pro_baseline import comparison_rows
+
 
 MAX_HISTORY_TURNS = 6
 
@@ -187,6 +189,45 @@ class PromptEngineer:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
+    #  Pro benchmark comparison
+    # ------------------------------------------------------------------
+
+    _SPANISH = ("es", "español", "castellano", "spanish")
+
+    @classmethod
+    def _pro_benchmark_section(cls, report: Dict, language: str) -> str:
+        """Render the pro-benchmark gap block, or "" when there is no comparison.
+
+        Uses ``player_report['pro_reference']`` and either the report metrics or
+        the precomputed ``deltas``. Header follows the prompt language.
+        """
+        report = report or {}
+        reference = report.get("pro_reference") or {}
+        if not reference:
+            return ""
+        metrics = report.get("metrics") or {}
+        deltas = report.get("deltas") or {}
+        if not metrics and deltas:
+            metrics = {k: reference[k] + d for k, d in deltas.items()
+                       if d is not None and k in reference}
+        rows = comparison_rows(metrics, reference, limit=8)
+        if not rows:
+            return ""
+
+        if (language or "").lower() in cls._SPANISH:
+            header = "COMPARACIÓN CON BENCHMARK PRO (Oracle's Elixir):"
+        else:
+            header = "PRO BENCHMARK COMPARISON (Oracle's Elixir):"
+
+        lines = [header]
+        for r in rows:
+            pct = "n/a" if r.get("pct") is None else f"{r['pct']:+.1f}%"
+            lines.append(
+                f"- {r['metric']}: {r['player']:.2f} vs {r['pro']:.2f} pro ({pct})"
+            )
+        return "\n".join(lines) + "\n"
+
+    # ------------------------------------------------------------------
     #  Prompt builder
     # ------------------------------------------------------------------
 
@@ -241,6 +282,11 @@ class PromptEngineer:
             pts = important_points[:6]
             game_section += "IMPORTANT POINTS:\n" + "\n".join(f"- {p.strip()}" for p in pts) + "\n"
 
+        # ----- optional pro benchmark comparison -----
+        pro_section = self._pro_benchmark_section(player_report, language)
+        if pro_section:
+            pro_section = "\n" + pro_section
+
         # ----- optional multi-turn / snapshot context -----
         context = build_chat_context(match_snapshot, history)
 
@@ -280,6 +326,7 @@ Example:
             f"SYSTEM: {system}\n\n"
             f"USER: {user}"
             f"{game_section}"
+            f"{pro_section}"
             f"{context}"
             f"{passage_section}"
             f"{lang_instruction}"

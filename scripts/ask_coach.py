@@ -30,7 +30,8 @@ from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
 from modules.llm.question_classifier import classify_question
 from modules.llm.retrieval import retrieve_for_category, detect_role, keyword_candidates
-from modules.data.report_builder import get_full_match, extract_rich_participant, render_match_snapshot
+from modules.data.report_builder import get_full_match, extract_rich_participant, render_match_snapshot, ReportBuilder
+from modules.data.pro_baseline import load_pro_reference
 from modules.coaching.prompt_builder import CoachingPromptBuilder
 
 
@@ -352,6 +353,18 @@ def ask_coach(question: str,
     else:
         # Fetch aggregate report
         agg = _build_aggregate_report(db, role or "", puuid=puuid)
+        # When a pro baseline exists for this role, rebuild the report with
+        # pro_reference so `deltas` is available to the prompt. Skipped when
+        # there is no puuid or no baseline — the stored report above still
+        # applies unchanged.
+        pro_ref = load_pro_reference(db, role) if role else {}
+        if puuid and pro_ref:
+            try:
+                built = ReportBuilder().build_player_report(puuid, db, pro_reference=pro_ref)
+                if built.get("status") not in ("empty", "error"):
+                    agg = built
+            except Exception:
+                logger.exception("Pro-benchmark report build failed; using stored report")
         if agg:
             player_report = agg
         game_summary = None
