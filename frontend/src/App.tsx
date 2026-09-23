@@ -3,6 +3,8 @@ import { Navbar } from './components/Navbar'
 import { SettingsProvider } from './components/settings/SettingsProvider'
 import { LandingView } from './views/LandingView'
 import { PlayerDashboardView } from './views/PlayerDashboardView'
+import { PlayerMatchesView } from './views/PlayerMatchesView'
+import { PlayerCompareView } from './views/PlayerCompareView'
 import { GoldReportView } from './views/GoldReportView'
 import { MatchDetailView } from './views/MatchDetailView'
 import { CoachView } from './views/CoachView'
@@ -17,6 +19,14 @@ export default function App() {
           <Routes>
             <Route path="/" element={<LandingView />} />
             <Route path="/player/:puuid" element={<PlayerDashboardView />} />
+            <Route
+              path="/player/:puuid/matches"
+              element={<PlayerMatchesView />}
+            />
+            <Route
+              path="/player/:puuid/compare"
+              element={<PlayerCompareView />}
+            />
             <Route
               path="/player/:puuid/gold"
               element={<GoldReportView />}

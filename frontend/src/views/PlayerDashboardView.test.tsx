@@ -2,6 +2,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
+// MOCK_ENABLED is read from ../mocks by src/lib/playerData.ts at call time.
+// Expose it as a getter over a mutable flag so a single test file can exercise
+// both the mock and the real data paths.
+const flags = vi.hoisted(() => ({ mock: false }))
+
+vi.mock('../mocks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../mocks')>()
+  return {
+    ...actual,
+    get MOCK_ENABLED() {
+      return flags.mock
+    },
+  }
+})
+
 vi.mock('../lib/api', () => ({
   getPlayerReport: vi.fn(),
   getPlayerMatches: vi.fn(),
@@ -43,56 +58,49 @@ function row(over: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+function realReport(over: Partial<Record<string, unknown>> = {}) {
+  return {
+    player: 'Faker#KR1',
+    role: 'Mid',
+    champion: 'Ahri',
+    games_analyzed: 20,
+    metrics: { kda: 3.4, cs_per_min: 7.8 },
+    pro_reference: null,
+    deltas: {},
+    ...over,
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  flags.mock = false
 })
 
-// --- Sidebar (player report) ---
+// --- Header (player overview) ---
 
-describe('sidebar report section', () => {
-  it('renders games analyzed, top champion, role and metrics on success', async () => {
-    mockReport.mockResolvedValue({
-      player: 'Faker#KR1',
-      role: 'Mid',
-      champion: 'Ahri',
-      games_analyzed: 20,
-      metrics: { kda: 3.4, cs_per_min: 7.8 },
-      pro_reference: null,
-      deltas: {},
-    })
+describe('overview header section', () => {
+  it('renders identity, role, champion and games/wins on success', async () => {
+    mockReport.mockResolvedValue(realReport())
     mockMatches.mockResolvedValue([])
 
     renderView()
 
-    const aside = await screen.findByRole('complementary')
-    expect(within(aside).getByText('Partidas analizadas')).toBeTruthy()
-    expect(within(aside).getByText('20')).toBeTruthy()
-    expect(within(aside).getByText('Campeón principal')).toBeTruthy()
-    expect(within(aside).getByText('Ahri')).toBeTruthy()
-    expect(within(aside).getByText('Mid')).toBeTruthy()
-    expect(within(aside).getByText('KDA promedio')).toBeTruthy()
-    expect(within(aside).getByText('3.4')).toBeTruthy()
-    expect(within(aside).getByText('CS/min')).toBeTruthy()
-    expect(within(aside).getByText('7.8')).toBeTruthy()
+    expect(await screen.findByText('Faker#KR1')).toBeTruthy()
+    expect(screen.getByText('Mid')).toBeTruthy()
+    expect(screen.getByText('Ahri')).toBeTruthy()
+    expect(screen.getByText(/20 partidas/)).toBeTruthy()
   })
 
-  it('shows em-dash for missing metrics', async () => {
-    mockReport.mockResolvedValue({
-      player: 'Faker#KR1',
-      role: null,
-      champion: null,
-      games_analyzed: 3,
-      metrics: {},
-      pro_reference: null,
-      deltas: {},
-    })
+  it('shows em-dash for missing role and champion', async () => {
+    mockReport.mockResolvedValue(
+      realReport({ role: null, champion: null, games_analyzed: 3 }),
+    )
     mockMatches.mockResolvedValue([])
 
     renderView()
 
-    const aside = await screen.findByRole('complementary')
-    // role + champion + kda + cs_per_min all missing
-    expect(within(aside).getAllByText('—').length).toBeGreaterThanOrEqual(4)
+    await screen.findByText('Faker#KR1')
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows empty copy on not_found', async () => {
@@ -114,21 +122,31 @@ describe('sidebar report section', () => {
 
     renderView()
 
-    const aside = await screen.findByRole('complementary')
-    expect(within(aside).getByText('Reintentar')).toBeTruthy()
+    expect(
+      await screen.findByText(/El servidor no pudo procesar la solicitud/),
+    ).toBeTruthy()
 
-    mockReport.mockResolvedValue({
-      player: 'Faker#KR1',
-      role: null,
-      champion: 'Ahri',
-      games_analyzed: 1,
-      metrics: {},
-      pro_reference: null,
-      deltas: {},
-    })
-    fireEvent.click(within(aside).getByText('Reintentar'))
+    mockReport.mockResolvedValue(realReport({ champion: 'Ahri' }))
+    fireEvent.click(screen.getByText('Reintentar'))
     await waitFor(() => {
-      expect(within(screen.getByRole('complementary')).getByText('Ahri')).toBeTruthy()
+      expect(screen.getByText('Ahri')).toBeTruthy()
+    })
+  })
+})
+
+// --- Comparison seam (real mode has no endpoint yet) ---
+
+describe('comparison seam', () => {
+  it('degrades score/percentiles/strengths to empty when mock is off', async () => {
+    mockReport.mockResolvedValue(realReport())
+    mockMatches.mockResolvedValue([])
+
+    renderView()
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('Comparativa no disponible todavía.'),
+      ).toHaveLength(3)
     })
   })
 })
@@ -137,15 +155,7 @@ describe('sidebar report section', () => {
 
 describe('match history section', () => {
   it('renders one card per row with metrics and win borders', async () => {
-    mockReport.mockResolvedValue({
-      player: 'p',
-      role: null,
-      champion: null,
-      games_analyzed: 0,
-      metrics: {},
-      pro_reference: null,
-      deltas: {},
-    })
+    mockReport.mockResolvedValue(realReport({ games_analyzed: 0 }))
     mockMatches.mockResolvedValue([
       row({ matchId: 'WIN', win: true, parsed_metrics: { kda: 5, cs_per_min: 8, goldEarned: 12000, gameDuration: 1800 } }),
       row({ matchId: 'LOSS', win: false, parsed_metrics: {} }),
@@ -175,15 +185,7 @@ describe('match history section', () => {
   })
 
   it('derives the win flag from parsed_metrics when top-level is absent', async () => {
-    mockReport.mockResolvedValue({
-      player: 'p',
-      role: null,
-      champion: null,
-      games_analyzed: 0,
-      metrics: {},
-      pro_reference: null,
-      deltas: {},
-    })
+    mockReport.mockResolvedValue(realReport({ games_analyzed: 0 }))
     mockMatches.mockResolvedValue([
       row({ matchId: 'PM-WIN', parsed_metrics: { win: true } }),
       row({ matchId: 'PM-LOSS', parsed_metrics: { win: false } }),
@@ -201,15 +203,7 @@ describe('match history section', () => {
   })
 
   it('shows em-dash for absent parsed_metrics fields', async () => {
-    mockReport.mockResolvedValue({
-      player: 'p',
-      role: null,
-      champion: null,
-      games_analyzed: 0,
-      metrics: {},
-      pro_reference: null,
-      deltas: {},
-    })
+    mockReport.mockResolvedValue(realReport({ games_analyzed: 0 }))
     mockMatches.mockResolvedValue([row({ matchId: 'EMPTY-M' })])
 
     renderView()
@@ -224,8 +218,11 @@ describe('match history section', () => {
 
     renderView()
 
+    const history = await screen.findByRole('region', {
+      name: 'Historial de partidas',
+    })
     await waitFor(() => {
-      expect(screen.getByText('Sin partidas todavía.')).toBeTruthy()
+      expect(within(history).getByText('Sin partidas todavía.')).toBeTruthy()
     })
   })
 
@@ -332,5 +329,60 @@ describe('match detail modal', () => {
     await screen.findByRole('dialog')
     fireEvent.click(screen.getByTestId('modal-backdrop'))
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+})
+
+// --- Mock mode (VITE_MOCK=true) ---
+
+describe('mock mode', () => {
+  beforeEach(() => {
+    flags.mock = true
+  })
+
+  it('renders the score, percentile, strengths/weaknesses and trend chart', async () => {
+    renderView()
+
+    const score = await screen.findByRole('region', { name: 'Puntaje' })
+    expect(within(score).getByText(/Basado en 20 partidas/)).toBeTruthy()
+
+    const percentiles = screen.getByRole('region', { name: 'Percentiles' })
+    expect(within(percentiles).getByText('Visión/min')).toBeTruthy()
+    expect(within(percentiles).getByText('Control wards')).toBeTruthy()
+    expect(within(percentiles).getByText('CS/min')).toBeTruthy()
+    expect(within(percentiles).getByText('KP')).toBeTruthy()
+    expect(within(percentiles).getByText('Daño/min')).toBeTruthy()
+    expect(within(percentiles).getByText('KDA')).toBeTruthy()
+
+    const strengths = screen.getByRole('region', { name: 'Fortalezas' })
+    const weaknesses = screen.getByRole('region', { name: 'A mejorar' })
+    expect(within(strengths).getByText('KDA')).toBeTruthy()
+    expect(within(weaknesses).getByText('CS/min')).toBeTruthy()
+    expect(within(weaknesses).getByText('Daño/min')).toBeTruthy()
+
+    const trend = screen.getByRole('region', { name: 'Tendencia' })
+    expect(within(trend).getByRole('combobox', { name: 'Métrica' })).toBeTruthy()
+    expect(within(trend).getByText(/Mediana pro/)).toBeTruthy()
+  })
+
+  it('uses the fixture without touching the real endpoints', async () => {
+    renderView()
+
+    expect(await screen.findByText('TR Terminator#1998')).toBeTruthy()
+    expect(await screen.findByRole('article', { name: 'DEMO-020' })).toBeTruthy()
+    expect(mockReport).not.toHaveBeenCalled()
+    expect(mockMatches).not.toHaveBeenCalled()
+  })
+
+  it('updates the pro median when the trend metric changes', async () => {
+    renderView()
+
+    const trend = await screen.findByRole('region', { name: 'Tendencia' })
+    // Default metric is Visión/min → pro median 2.40.
+    expect(within(trend).getByText(/Mediana pro: 2\.40/)).toBeTruthy()
+
+    fireEvent.change(within(trend).getByRole('combobox', { name: 'Métrica' }), {
+      target: { value: 'kda' },
+    })
+    expect(within(trend).getByText(/Mediana pro: 2\.80/)).toBeTruthy()
   })
 })

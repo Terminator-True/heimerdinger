@@ -1,5 +1,6 @@
-import { Bot, Search, Settings, Users } from 'lucide-react'
+import { Bot, Search, Settings } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
+import { MOCK_ENABLED } from '../mocks'
 import { HealthDot } from './HealthDot'
 import { RegionSelector } from './RegionSelector'
 import { useSettings } from './settings/SettingsProvider'
@@ -7,7 +8,6 @@ import { useSettings } from './settings/SettingsProvider'
 const NAV_LINKS = [
   { to: '/', label: 'Búsqueda', icon: Search },
   { to: '/coach', label: 'Coach', icon: Bot },
-  { to: '/team', label: 'Equipo', icon: Users },
 ]
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -22,7 +22,14 @@ export function Navbar() {
   const { openDialog } = useSettings()
   return (
     <nav className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 px-4 py-3 sm:px-6">
-      <span className="text-sm font-semibold text-slate-100">Heimerdinger</span>
+      <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+        Heimerdinger
+        {MOCK_ENABLED && (
+          <span className="rounded bg-amber-500 px-1.5 py-0.5 text-xs font-semibold uppercase text-slate-950">
+            Mock
+          </span>
+        )}
+      </span>
 
       <div className="flex items-center gap-1">
         {NAV_LINKS.map(({ to, label, icon: Icon }) => (

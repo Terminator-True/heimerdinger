@@ -9,6 +9,7 @@ import { goldEarnedSeries, goldEfficiency } from '../lib/gold'
 import { ErrorState } from '../components/ErrorState'
 import { EmptyState } from '../components/EmptyState'
 import { PanelSkeleton } from '../components/PanelSkeleton'
+import { PlayerTabs } from '../components/player/PlayerTabs'
 
 type AggregateGold = Awaited<ReturnType<typeof getGoldReport>>
 type GoldRow = Awaited<ReturnType<typeof getGoldMatches>>[number]
@@ -168,6 +169,7 @@ export function GoldReportView() {
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
       <h1 className="text-xl font-semibold text-slate-100">Reporte de oro</h1>
+      <PlayerTabs puuid={puuid} />
       <PercentileChart state={report.state} retry={report.retry} />
       <ItemTimeline state={matches.state} retry={matches.retry} />
       <EfficiencyBadge state={matches.state} retry={matches.retry} />

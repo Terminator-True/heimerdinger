@@ -27,7 +27,9 @@ import App from '../App'
 
 const ROUTES: Array<[path: string, heading: string]> = [
   ['/', 'Buscar jugador'],
-  ['/player/puuid-1', 'Historial'],
+  ['/player/puuid-1', 'Resumen'],
+  ['/player/puuid-1/matches', 'Partidas'],
+  ['/player/puuid-1/compare', 'Comparativa'],
   ['/player/puuid-1/gold', 'Reporte de oro'],
   ['/matches/M1', 'Detalle de partida'],
   ['/coach', 'Coach IA'],
@@ -51,5 +53,11 @@ describe('route smoke check — all SPA views mount', () => {
     window.history.pushState({}, '', '/nonexistent')
     render(<App />)
     expect(screen.getByRole('heading', { name: 'Buscar jugador' })).toBeTruthy()
+  })
+
+  it('no longer shows the removed Equipo nav link', () => {
+    window.history.pushState({}, '', '/')
+    render(<App />)
+    expect(screen.queryByRole('link', { name: 'Equipo' })).toBeNull()
   })
 })
