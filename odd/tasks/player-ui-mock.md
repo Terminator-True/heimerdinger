@@ -60,4 +60,25 @@ Backend (ningún endpoint), `TeamView`, `CoachView`, `GoldReportView`, ingesta.
 - Writer (2+ archivos no triviales): **delegado** por slice (C, luego D).
 
 ## Progreso
-- Mapa del front/API + investigación de Blitz/Porofessor hechos. Pendiente slice C.
+- Mapa del front/API + investigación de Blitz/Porofessor hechos.
+- **Slice C — COMMITEADO** (`a483bf3`): `src/mocks/player.ts` (fixture Support: 20 partidas,
+  baseline pro 2025), `src/mocks/index.ts` (`MOCK_ENABLED`), `src/lib/playerData.ts` (seam de
+  datos, `{state, retry}`), `PlayerTabs`, rutas `/matches` y `/compare` (placeholders),
+  Resumen reescrito (score vs pro, percentiles, fortalezas/a mejorar, tendencia con
+  `ReferenceLine`), Navbar sin "Equipo" + badge `MOCK`.
+- **Slice D — COMMITEADO** (`daa62c0`): Partidas con desglose inline en 5 fases + filtros de
+  campeón/resultado; Comparativa con tabla (valor vs mediana/p25/p75, delta firmado, barra de
+  percentil), chips por fase, toggle "solo brechas negativas" y orden por delta. `lib/metrics.ts`
+  como única fuente de etiquetas/fases/formato.
+
+## Verificación REAL
+- `npm test` → **ROTO pre-existente**: vitest 4 eliminó `--forbidOnly` (el script de
+  `package.json` quedó viejo). Además este host corre Node 20 y `jsdom@30`/`undici@8` piden ≥22.
+- Workaround verificado: `npx -y node@22 ./node_modules/vitest/vitest.mjs run` → **19 archivos,
+  162 tests, todos verdes**.
+- `npm run build` → EXIT 0. `npm run lint` → EXIT 0 (solo warnings pre-existentes).
+
+## Pendiente
+- Arreglar el script `test` de `frontend/package.json` (`--forbidOnly` → `--allowOnly`) o subir
+  Node a ≥22. Fuera del alcance autorizado de este change; requiere tu OK.
+- Se limpió un `package-lock.json` vacío en la raíz que dejó `npx` (artefacto, no contenido).
