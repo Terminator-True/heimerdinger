@@ -38,6 +38,47 @@ def resolve_team_puuids(team: List[Dict[str, Any]], client) -> List[str]:
     return puuids
 
 
+def resolve_focus_puuid(focus: Dict[str, Any], region: str = "europe") -> Optional[str]:
+    """Resolve a focus player's puuid: DB mapping first, Riot API fallback.
+
+    Returns None on any failure (never raises).
+    """
+    riotid = (focus or {}).get("riotid")
+    if not riotid:
+        return None
+
+    db = None
+    try:
+        db = get_db(os.getenv("MONGO_URI"))
+        doc = db.get_collection("players").find_one({"riotid": riotid})
+        if doc and doc.get("player_puuid"):
+            return doc["player_puuid"]
+    except Exception as exc:
+        logger.warning("players lookup failed for %s: %s", riotid, exc)
+
+    try:
+        if "#" not in riotid:
+            return None
+        name, tagline = riotid.rsplit("#", 1)
+        account = RiotClient(region=region).get_account_by_riot_id(
+            name.strip(), tagline.strip()
+        )
+        puuid = account.get("puuid") or account.get("id")
+        if puuid and db is not None:
+            try:
+                db.get_collection("players").update_one(
+                    {"player_puuid": puuid},
+                    {"$set": {"player_puuid": puuid, "riotid": riotid}},
+                    upsert=True,
+                )
+            except Exception as exc:
+                logger.warning("Failed to persist riotid->puuid mapping for %s: %s", riotid, exc)
+        return puuid
+    except Exception as exc:
+        logger.warning("Riot API lookup failed for focus riotid %s: %s", riotid, exc)
+        return None
+
+
 def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_rep: str = "europe", skip_fetch: bool = False, team_puuids: Optional[List[str]] = None, min_team_members: int = 5) -> Dict[str, Any]:
     """Ingest matches for a single player.
 
@@ -86,6 +127,18 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
     # Resolve account
     account = client.get_account_by_riot_id(name, tagline)
     puuid = account.get("puuid") or account.get("id")
+
+    # Best-effort persist the riotid -> puuid mapping so the coaching focus can
+    # resolve a player offline (DB first) without another Riot API call. Must
+    # never break ingestion.
+    try:
+        db.get_collection("players").update_one(
+            {"player_puuid": puuid},
+            {"$set": {"player_puuid": puuid, "riotid": riotid}},
+            upsert=True,
+        )
+    except Exception as exc:
+        logger.warning("Failed to persist riotid->puuid mapping for %s: %s", riotid, exc)
 
     matches_fetched = 0
     matches_saved = 0

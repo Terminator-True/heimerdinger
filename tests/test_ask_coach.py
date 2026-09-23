@@ -25,6 +25,10 @@ def patched_ask_coach(monkeypatch):
     """Import ask_coach with all external side effects mocked."""
     import scripts.ask_coach as ask_coach_mod
 
+    # Keep the focus feature hermetic: no FOCUS_* env leaking from .env.
+    monkeypatch.delenv("FOCUS_RIOTID", raising=False)
+    monkeypatch.delenv("FOCUS_ROLE", raising=False)
+
     monkeypatch.setattr(ask_coach_mod, "get_db", lambda: FakeDB())
 
     class FakeOllama:
@@ -48,7 +52,7 @@ def patched_ask_coach(monkeypatch):
         ask_coach_mod, "classify_question",
         lambda q: {"category_id": "laning", "category_label": "laning", "method": "rule", "confidence": 0.9},
     )
-    monkeypatch.setattr(ask_coach_mod, "_build_aggregate_report", lambda db, role: {})
+    monkeypatch.setattr(ask_coach_mod, "_build_aggregate_report", lambda db, role, puuid=None: {})
 
     # avoid writing response files during tests
     monkeypatch.setattr(ask_coach_mod.os, "makedirs", lambda *a, **k: None)
@@ -290,3 +294,78 @@ def test_semantic_passages_role_where_uses_canonical_names(monkeypatch, patched_
 
     assert calls["where"] == {"role": {"$in": ["Support", "support", "SUPPORT"]}}
     assert out == ["doc support"]
+
+
+# ---------------------------------------------------------------------------
+#  focus-player scoping in _find_report_for_role
+# ---------------------------------------------------------------------------
+
+class _FakeCursor:
+    """Minimal cursor: find(...).sort(...).limit(...) is iterable."""
+
+    def __init__(self, docs):
+        self._docs = docs
+
+    def sort(self, *args, **kwargs):
+        return self
+
+    def limit(self, *args, **kwargs):
+        return self
+
+    def __iter__(self):
+        return iter(self._docs)
+
+
+class _CapturingCollection:
+    """Collection that records the filter passed to find()."""
+
+    def __init__(self, docs):
+        self.docs = docs
+        self.last_filter = None
+
+    def find(self, filter_q):
+        self.last_filter = filter_q
+        return _FakeCursor(self.docs)
+
+
+class _FakeReportsDB:
+    def __init__(self, collection):
+        self._collection = collection
+
+    def get_collection(self, name):
+        return self._collection
+
+
+def test_find_report_for_role_narrows_to_player_when_puuid_set():
+    import scripts.ask_coach as ask_coach_mod
+
+    col = _CapturingCollection([{"player": "p1", "role": "Support"}])
+    db = _FakeReportsDB(col)
+
+    out = ask_coach_mod._find_report_for_role(db, "Support", puuid="p1")
+
+    # player wins over role: the role key must NOT be present
+    assert col.last_filter == {"player": "p1"}
+    assert out == [{"player": "p1", "role": "Support"}]
+
+
+def test_find_report_for_role_legacy_role_only_path_unchanged():
+    import scripts.ask_coach as ask_coach_mod
+
+    col = _CapturingCollection([{"player": "p2", "role": "Support"}])
+    db = _FakeReportsDB(col)
+
+    ask_coach_mod._find_report_for_role(db, "Support")
+
+    assert col.last_filter == {"role": "Support"}
+
+
+def test_find_report_for_role_empty_role_matches_any():
+    import scripts.ask_coach as ask_coach_mod
+
+    col = _CapturingCollection([])
+    db = _FakeReportsDB(col)
+
+    ask_coach_mod._find_report_for_role(db, "")
+
+    assert col.last_filter == {}

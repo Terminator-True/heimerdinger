@@ -339,6 +339,7 @@ def coach(req: CoachRequest):
             last_match=req.last_match,
             lang=req.lang,
             history=req.history,
+            puuid=req.puuid,
         )
     except Exception as exc:
         logger.exception("POST /coach failed: %s", exc)

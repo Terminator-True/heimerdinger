@@ -23,7 +23,8 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from modules.logger import get_logger
-from modules.config_manager import get_embeddings_config
+from modules.config_manager import get_embeddings_config, get_focus_player
+from modules.ingest.lib import resolve_focus_puuid
 from modules.db.connection import get_db
 from modules.llm.ollama_client import OllamaClient
 from modules.llm.prompt_engineer import PromptEngineer
@@ -37,11 +38,20 @@ from modules.coaching.prompt_builder import CoachingPromptBuilder
 #  helpers
 # ------------------------------------------------------------------
 
-def _find_report_for_role(db, role: str, limit: int = 3) -> List[Dict[str, Any]]:
-    """Fetch most recent reports matching a role (any role when empty)."""
+def _find_report_for_role(db, role: str, limit: int = 3, puuid: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch most recent reports matching a role (any role when empty).
+
+    When `puuid` is set the query narrows to that player and the role filter is
+    dropped (the player wins over the role).
+    """
     try:
         col = db.get_collection("reports")
-        filter_q = {"role": role} if role else {}
+        if puuid:
+            filter_q = {"player": puuid}
+        elif role:
+            filter_q = {"role": role}
+        else:
+            filter_q = {}
         docs = list(col.find(filter_q).sort("_id", -1).limit(limit))
         return docs
     except Exception:
@@ -49,7 +59,10 @@ def _find_report_for_role(db, role: str, limit: int = 3) -> List[Dict[str, Any]]
             col = db.setdefault("reports", {})
             out = []
             for d in col.values():
-                if not role or d.get("role") == role:
+                if puuid:
+                    if d.get("player") == puuid:
+                        out.append(d)
+                elif not role or d.get("role") == role:
                     out.append(d)
             return out[:limit]
         except Exception:
@@ -65,11 +78,15 @@ def _build_last_match_report(db, role: str, puuid: Optional[str] = None) -> Dict
     """
     logger = get_logger()
     try:
-        # 1. find most recent player_match for this role (or any role)
+        # 1. find most recent player_match for this player (puuid wins over
+        # role), this role, or any role
         col = db.get_collection("player_matches")
-        filter_q = {}
-        if role:
-            filter_q["role"] = role
+        if puuid:
+            filter_q = {"player_puuid": puuid}
+        elif role:
+            filter_q = {"role": role}
+        else:
+            filter_q = {}
         try:
             pm_docs = list(col.find(filter_q).sort("_id", -1).limit(10))
         except Exception:
@@ -115,8 +132,8 @@ def _build_last_match_report(db, role: str, puuid: Optional[str] = None) -> Dict
         return {}
 
 
-def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
-    """Fetch the most recent aggregate report for this role.
+def _build_aggregate_report(db, role: str, puuid: Optional[str] = None) -> Dict[str, Any]:
+    """Fetch the most recent aggregate report for this player/role.
 
     Prefers multi-game aggregate reports (games_analyzed > 1); falls back to
     the latest report of any kind — the `reports` collection also stores
@@ -124,7 +141,7 @@ def _build_aggregate_report(db, role: str) -> Dict[str, Any]:
     """
     logger = get_logger()
     try:
-        docs = _find_report_for_role(db, role, limit=5)
+        docs = _find_report_for_role(db, role, limit=5, puuid=puuid)
         if docs:
             aggregates = [d for d in docs if isinstance(d.get("games_analyzed"), int) and d["games_analyzed"] > 1]
             return (aggregates or docs)[0]
@@ -196,21 +213,32 @@ def ask_coach(question: str,
               model: str = "qwen2.5:14b",
               last_match: bool = False,
               lang: str = "es",
-              history: Optional[List[Dict]] = None):
+              history: Optional[List[Dict]] = None,
+              puuid: Optional[str] = None):
     """Entry point: classify, retrieve, format prompt, call Ollama.
 
     Args:
         question: the user's message.
-        role: optional role filter (Top, Jungle, ...).
+        role: optional role filter (Top, Jungle, ...). An explicitly passed
+            role wins over the env-configured focus role.
         model: Ollama model name.
         last_match: use only the most recent match as context.
         lang: language for the assistant's reply.
         history: optional list of {"role", "content"} previous turns.
+        puuid: optional player puuid. When unset and a focus player is
+            configured via env (FOCUS_RIOTID/FOCUS_ROLE), the focus player's
+            puuid is resolved and used to scope context to that single player.
     """
     logger = get_logger()
     db = get_db()
     pe = PromptEngineer()
     snapshot = None
+
+    # 0. Resolve the single-player coaching focus (env-configured, optional).
+    focus = get_focus_player()
+    if puuid is None and focus:
+        puuid = resolve_focus_puuid(focus)
+    role = role or (focus["role"] if focus else None)
 
     # 1. Classify question
     cat = classify_question(question)
@@ -279,7 +307,7 @@ def ask_coach(question: str,
 
     if last_match:
         # Fetch last-match data for schema-driven coaching prompt
-        last = _build_last_match_report(db, role or "")
+        last = _build_last_match_report(db, role or "", puuid=puuid)
         if last and last.get("full_match"):
             snapshot = render_match_snapshot(last["full_match"])
             try:
@@ -323,7 +351,7 @@ def ask_coach(question: str,
                 important_points = pts if pts else None
     else:
         # Fetch aggregate report
-        agg = _build_aggregate_report(db, role or "")
+        agg = _build_aggregate_report(db, role or "", puuid=puuid)
         if agg:
             player_report = agg
         game_summary = None
@@ -361,6 +389,7 @@ def ask_coach(question: str,
             json.dump({
                 "question": question,
                 "role": role,
+                "puuid": puuid,
                 "category": cat,
                 "player_report": player_report,
                 "passages": passages,
@@ -383,6 +412,10 @@ def main():
                         help="Retrieve context only from the latest match")
     parser.add_argument("--lang", default="es",
                         help="Language for the assistant's reply (default: es).")
+    parser.add_argument("--puuid", required=False,
+                        help="Scope context to a single player by puuid.")
+    parser.add_argument("--focus", action="store_true",
+                        help="Use the env-configured focus player (FOCUS_RIOTID/FOCUS_ROLE).")
     args = parser.parse_args()
 
     ask_coach(
@@ -391,6 +424,7 @@ def main():
         model=args.model,
         last_match=args.last_match,
         lang=args.lang,
+        puuid=args.puuid,
     )
 
 

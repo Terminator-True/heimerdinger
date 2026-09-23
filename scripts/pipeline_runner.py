@@ -20,7 +20,7 @@ REPO_ROOT = str(Path(__file__).resolve().parents[1])
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
-from modules.config_manager import get_team
+from modules.config_manager import get_team, get_focus_player
 from modules.ingest.lib import ingest_player, resolve_team_puuids
 from modules.data.report_builder import ReportBuilder
 from modules.llm.llm_advisor import LLMAdvisor
@@ -41,13 +41,30 @@ def main():
     parser.add_argument("--per-match", action="store_true", help="Generate per-match reports instead of aggregated per-player reports")
     parser.add_argument("--max-llm-per-player", type=int, default=0, help="If >0, call LLM up to N times per player (0=disabled)")
     parser.add_argument("--skip-fetch", action="store_true")
+    parser.add_argument("--focus", action="store_true",
+                        help="Ingest and report only the env-configured focus player (FOCUS_RIOTID/FOCUS_ROLE), with no team-presence gate.")
     args = parser.parse_args()
 
     console = Console()
-    team = get_team(args.team)
     db = get_db()
     rb = ReportBuilder()
-    team_puuids = resolve_team_puuids(team, RiotClient(region=args.region))
+
+    if args.focus:
+        try:
+            focus = get_focus_player()
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            sys.exit(1)
+        if not focus:
+            console.print("[red]FOCUS_RIOTID is not set; cannot run with --focus[/red]")
+            sys.exit(1)
+        # Single-player mode: ingest only the focus player, no team-presence
+        # gate (team_puuids=None tells ingest_player to skip the check).
+        team = [focus]
+        team_puuids = None
+    else:
+        team = get_team(args.team)
+        team_puuids = resolve_team_puuids(team, RiotClient(region=args.region))
 
     for p in team:
         riotid = p.get("riotid")

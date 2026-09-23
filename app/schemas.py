@@ -37,6 +37,7 @@ class CoachRequest(BaseModel):
     last_match: bool = False
     lang: str = "es"
     history: Optional[List[Dict[str, Any]]] = None
+    puuid: Optional[str] = None
 
 
 class EmbeddingQueryRequest(BaseModel):

@@ -3,11 +3,38 @@
 Provides helpers to list available team files and load a team by name or path.
 """
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import json
+import os
 
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+
+_FOCUS_DEFAULT_ROLE = "Support"
+
+
+def get_focus_player() -> Optional[Dict[str, str]]:
+    """Return the single-player coaching focus from env, or None.
+
+    Reads FOCUS_RIOTID / FOCUS_ROLE. Returns None when FOCUS_RIOTID is unset
+    or blank. Raises ValueError when FOCUS_RIOTID is not 'Name#Tagline'.
+    """
+    riotid = (os.getenv("FOCUS_RIOTID") or "").strip()
+    if not riotid:
+        return None
+
+    if "#" not in riotid:
+        raise ValueError(
+            f"FOCUS_RIOTID must be in the form 'Name#Tagline', got: {riotid!r}"
+        )
+    name, tagline = riotid.rsplit("#", 1)
+    if not name.strip() or not tagline.strip():
+        raise ValueError(
+            f"FOCUS_RIOTID must be in the form 'Name#Tagline', got: {riotid!r}"
+        )
+
+    role = (os.getenv("FOCUS_ROLE") or "").strip() or _FOCUS_DEFAULT_ROLE
+    return {"riotid": riotid, "role": role}
 
 
 def get_team(team_name_or_path: str) -> Dict[str, Any]:
