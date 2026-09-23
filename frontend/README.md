@@ -2,6 +2,26 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
+## Mock mode
+
+Run the whole player UI against the synthetic Support dataset with zero
+backend calls:
+
+```bash
+VITE_MOCK=true npm run dev
+```
+
+`VITE_MOCK` is read in `src/mocks/index.ts` and swapped at the single data
+seam in `src/lib/playerData.ts`.
+
+## Player routes
+
+- `/player/:puuid` — Resumen (dashboard)
+- `/player/:puuid/matches` — Partidas: champion/result filters plus an inline
+  per-match phase breakdown (Laning, Economía, Visión, Combate, Objetivos)
+- `/player/:puuid/compare` — Comparativa: metric table vs the pro baseline
+- `/player/:puuid/gold` — Reporte de oro
+
 Currently, two official plugins are available:
 
 - [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
