@@ -62,7 +62,10 @@ export const ingestTeamSchema = z
   })
   .passthrough()
 
-// GET /players/{puuid}/matches — array of cleaned player_matches docs
+// GET /players/{puuid}/matches — array of cleaned player_matches docs.
+// parsed_metrics is a free-form record: the ingest merges the rich
+// `ch_*`/total* challenge fields on top of the parser fields, and they MUST
+// survive parsing (the normalization seam lifts them to canonical keys).
 export const playerMatchSchema = z
   .object({
     player_puuid: z.string(),
@@ -75,6 +78,64 @@ export const playerMatchSchema = z
   .passthrough()
 export const playerMatchesSchema = z.array(playerMatchSchema)
 // Note: arrays need no passthrough in zod — element schemas carry looseness.
+
+// GET /players/{puuid}/comparison — player metrics vs the pro baseline.
+// `pct` is null when the pro mean is 0; the percentile fields are attached per
+// row from the baseline stats (null when the stat is absent). baseline is null
+// when no baseline exists for the role (never 404).
+export const comparisonRowSchema = z
+  .object({
+    metric: z.string(),
+    player: z.number(),
+    pro: z.number(),
+    delta: z.number(),
+    pct: z.number().nullable(),
+    p25: z.number().nullable().optional(),
+    median: z.number().nullable().optional(),
+    p75: z.number().nullable().optional(),
+    n: z.number().nullable().optional(),
+  })
+  .passthrough()
+
+export const comparisonBaselineSchema = z
+  .object({
+    role: z.string().nullable(),
+    source: z.string().nullable(),
+    games: z.number().nullable(),
+    season: z.number().nullable().optional(),
+  })
+  .passthrough()
+
+export const playerComparisonSchema = z
+  .object({
+    player: z.string(),
+    role: z.string().nullable(),
+    games_analyzed: z.number().nullable(),
+    baseline: comparisonBaselineSchema.nullable(),
+    rows: z.array(comparisonRowSchema),
+  })
+  .passthrough()
+
+// GET /pro/baseline/{role} — full stored baseline document (404 when absent).
+export const proMetricStatsSchema = z
+  .object({
+    mean: z.number(),
+    median: z.number(),
+    p25: z.number(),
+    p75: z.number(),
+    n: z.number().optional(),
+  })
+  .passthrough()
+
+export const proBaselineSchema = z
+  .object({
+    role: z.string(),
+    source: z.string(),
+    games: z.number(),
+    season: z.number().optional(),
+    metrics: z.record(z.string(), proMetricStatsSchema),
+  })
+  .passthrough()
 
 // GET /players/{puuid}/report — success has NO status (empty = HTTP 404);
 // error variants carry status/detail instead of the full payload, hence the

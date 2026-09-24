@@ -57,7 +57,8 @@ export interface ProMetricStats {
 export interface ProBaseline {
   role: string
   source: string
-  season: number
+  // Optional: the real baseline doc only carries a season when one was stored.
+  season?: number
   games: number
   metrics: Record<string, ProMetricStats>
 }

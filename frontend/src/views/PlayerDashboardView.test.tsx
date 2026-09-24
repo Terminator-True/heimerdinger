@@ -19,11 +19,13 @@ vi.mock('../mocks', async (importOriginal) => {
 
 vi.mock('../lib/api', () => ({
   getPlayerReport: vi.fn(),
+  getPlayerComparison: vi.fn(),
   getPlayerMatches: vi.fn(),
   getPlayerMatchReport: vi.fn(),
 }))
 
 import {
+  getPlayerComparison,
   getPlayerMatchReport,
   getPlayerMatches,
   getPlayerReport,
@@ -32,6 +34,7 @@ import { PlayerDashboardView } from './PlayerDashboardView'
 
 const PUUID = 'puuid-1'
 const mockReport = vi.mocked(getPlayerReport)
+const mockComparison = vi.mocked(getPlayerComparison)
 const mockMatches = vi.mocked(getPlayerMatches)
 const mockMatchReport = vi.mocked(getPlayerMatchReport)
 
@@ -74,6 +77,9 @@ function realReport(over: Partial<Record<string, unknown>> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   flags.mock = false
+  // Real mode always fires /report and /comparison; default the comparison to
+  // the 404-as-empty path unless a test overrides it.
+  mockComparison.mockRejectedValue({ kind: 'not_found' })
 })
 
 // --- Header (player overview) ---

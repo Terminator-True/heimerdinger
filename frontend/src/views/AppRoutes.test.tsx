@@ -13,6 +13,8 @@ vi.mock('../lib/api', () => ({
   askCoach: vi.fn(() => new Promise(() => {})),
   getPlayerMatches: vi.fn(() => new Promise(() => {})),
   getPlayerReport: vi.fn(() => new Promise(() => {})),
+  getPlayerComparison: vi.fn(() => new Promise(() => {})),
+  getProBaseline: vi.fn(() => new Promise(() => {})),
   getPlayerMatchReport: vi.fn(() => new Promise(() => {})),
   getMatchComposition: vi.fn(() => new Promise(() => {})),
   getMatchSnapshot: vi.fn(() => new Promise(() => {})),

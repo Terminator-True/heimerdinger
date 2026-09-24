@@ -16,12 +16,15 @@ vi.mock('../mocks', async (importOriginal) => {
 
 vi.mock('../lib/api', () => ({
   getPlayerReport: vi.fn(),
+  getPlayerComparison: vi.fn(),
   getPlayerMatches: vi.fn(),
 }))
 
+import { getPlayerComparison } from '../lib/api'
 import { PlayerCompareView } from './PlayerCompareView'
 
 const PUUID = 'puuid-1'
+const mockComparison = vi.mocked(getPlayerComparison)
 
 function renderView() {
   return render(
@@ -98,10 +101,12 @@ describe('PlayerCompareView sort', () => {
 })
 
 describe('PlayerCompareView real mode', () => {
-  it('shows the empty message when the comparison endpoint is absent', () => {
+  it('shows the empty message when the comparison endpoint is absent', async () => {
     flags.mock = false
+    mockComparison.mockRejectedValue({ kind: 'not_found' })
     renderView()
 
-    expect(screen.getByText('Comparativa no disponible todavía.')).toBeTruthy()
+    // Real mode resolves asynchronously (404-as-empty), so await the state.
+    expect(await screen.findByText('Comparativa no disponible todavía.')).toBeTruthy()
   })
 })

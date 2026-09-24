@@ -8,6 +8,8 @@ import {
   ingestTeamSchema,
   playerMatchesSchema,
   playerReportSchema,
+  playerComparisonSchema,
+  proBaselineSchema,
   matchReportSchema,
   compositionSchema,
   snapshotSchema,
@@ -245,6 +247,18 @@ export function getPlayerMatches(
 
 export function getPlayerReport(puuid: string): Promise<z.output<typeof playerReportSchema>> {
   return get(`/players/${encodeURIComponent(puuid)}/report`, playerReportSchema)
+}
+
+export function getPlayerComparison(
+  puuid: string,
+  role?: string,
+): Promise<z.output<typeof playerComparisonSchema>> {
+  const qs = role === undefined ? '' : `?role=${encodeURIComponent(role)}`
+  return get(`/players/${encodeURIComponent(puuid)}/comparison${qs}`, playerComparisonSchema)
+}
+
+export function getProBaseline(role: string): Promise<z.output<typeof proBaselineSchema>> {
+  return get(`/pro/baseline/${encodeURIComponent(role)}`, proBaselineSchema)
 }
 
 export function getPlayerMatchReport(

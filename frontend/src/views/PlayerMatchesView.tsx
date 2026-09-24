@@ -42,12 +42,18 @@ function isObjectiveKey(key: string): key is ObjectiveKey {
   return (OBJECTIVE_KEYS as readonly string[]).includes(key)
 }
 
-// The three objective counts live under a nested object; every other metric is
-// a flat MatchRow field. Missing/invalid → null (rendered without a bar/delta).
+// Objective counts are canonical flat MatchRow fields (the normalizer lifts
+// them out of the mock's nested `objectives` object), with the nested object
+// kept as a fallback. Missing/invalid → null (rendered without a bar/delta) —
+// never fabricated.
 function metricValue(match: MatchRow, key: string): number | null {
-  const raw: unknown = isObjectiveKey(key)
-    ? match.objectives[key]
-    : (match as unknown as Record<string, unknown>)[key]
+  const flat = (match as unknown as Record<string, unknown>)[key]
+  const raw: unknown =
+    typeof flat === 'number' && Number.isFinite(flat)
+      ? flat
+      : isObjectiveKey(key)
+        ? match.objectives?.[key]
+        : undefined
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
 }
 

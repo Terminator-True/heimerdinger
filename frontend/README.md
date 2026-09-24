@@ -2,17 +2,34 @@
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
-## Mock mode
+## Mock mode vs real API
 
-Run the whole player UI against the synthetic Support dataset with zero
-backend calls:
+By default the player screens hit the real backend. Set `VITE_MOCK=true` to
+render the whole player UI from the synthetic Support fixture in
+`src/mocks/player.ts` with **zero network calls**:
 
 ```bash
 VITE_MOCK=true npm run dev
 ```
 
 `VITE_MOCK` is read in `src/mocks/index.ts` and swapped at the single data
-seam in `src/lib/playerData.ts`.
+seam in `src/lib/playerData.ts`. Both modes return the same shapes, so the
+views never branch on the data source.
+
+Real endpoints consumed by the seam:
+
+- `GET /players/{puuid}/report` — identity, dominant role/champion, games and
+  metric rollups (with `pro_reference`/`deltas` when a baseline exists).
+- `GET /players/{puuid}/comparison?role=` — player vs pro baseline rows
+  (`{metric, player, pro, delta, pct, p25, median, p75, n}`); returns
+  `baseline: null, rows: []` when no baseline is imported (the UI renders its
+  explicit "Comparativa no disponible todavía." state).
+- `GET /players/{puuid}/matches?limit=N` — match history; the rich
+  `parsed_metrics` keys (`ch_visionScorePerMinute`, `ch_controlWardsPlaced`,
+  `ch_killParticipation`, …) are normalized to canonical names in
+  `playerData.ts` so views never see the `ch_` prefix.
+- `GET /pro/baseline/{role}` — full stored pro baseline document (404 when
+  absent).
 
 ## Player routes
 

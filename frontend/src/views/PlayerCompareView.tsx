@@ -134,7 +134,8 @@ function CompareTable({
       <div className="overflow-x-auto rounded border border-slate-800 bg-slate-900 p-6">
         <table className="w-full text-left text-sm">
           <caption className="mb-3 text-left text-sm text-slate-400">
-            Baseline: {baseline.source} — {baseline.role}, {baseline.season} ·{' '}
+            Baseline: {baseline.source} — {baseline.role}
+            {baseline.season !== undefined ? `, ${baseline.season}` : ''} ·{' '}
             {formatThousands(baseline.games)} partidas
           </caption>
           <thead>
