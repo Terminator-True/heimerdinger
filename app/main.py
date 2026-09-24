@@ -42,6 +42,7 @@ from modules.data.report_builder import (
     extract_team_composition,
     render_match_snapshot,
 )
+from modules.data.timeline import build_player_timeline
 from modules.data.pro_baseline import (
     _means_from_doc,
     comparison_rows,
@@ -328,6 +329,29 @@ def match_report(puuid: str, match_id: str, db: Any = Depends(get_db_dep)):
     if not doc:
         raise HTTPException(404, "player_match not found")
     return ReportBuilder().build_match_report(doc, db)
+
+
+@api.get("/players/{puuid}/matches/{match_id}/timeline")
+def match_timeline(puuid: str, match_id: str, db: Any = Depends(get_db_dep)):
+    """Stored per-minute series for one player in one match.
+
+    Curves need the compacted timeline to have been captured (ingest or
+    scripts/backfill_timelines.py); an unstored timeline is a 404, not an empty
+    series. The player_match must exist for this puuid+matchId.
+    """
+    col = db.get_collection("player_matches")
+    doc = col.find_one({"player_puuid": puuid, "matchId": match_id})
+    if not doc:
+        raise HTTPException(404, "player_match not found")
+    timeline = db.get_collection("timelines").find_one({"matchId": match_id})
+    if not timeline:
+        raise HTTPException(
+            404,
+            "no timeline stored for this match; run scripts/backfill_timelines.py",
+        )
+    # A missing participant inside a stored timeline is not an error: the
+    # builder returns a safe empty-series skeleton.
+    return build_player_timeline(timeline, get_full_match(db, match_id), puuid)
 
 
 # ---------------------------------------------------------------------------

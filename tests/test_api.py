@@ -64,6 +64,7 @@ def make_fake_db(player_matches=None):
     return FakeDB(
         player_matches=FakeCol(player_matches or []),
         matches=FakeCol([]),
+        timelines=FakeCol([]),
         reports=FakeCol([]),
     )
 
@@ -162,6 +163,105 @@ def test_match_report_found(client, override_db):
         r = client.get("/players/p1/matches/m1/report")
     assert r.status_code == 200
     assert r.json()["matchId"] == "m1"
+
+
+def _raw_timeline(mid="m1", minutes=22):
+    """Minimal match-v5 timeline: two laners, one frame per minute."""
+    frames = []
+    for m in range(minutes + 1):
+        frames.append({
+            "timestamp": m * 60000,
+            "participantFrames": {
+                "1": {"participantId": 1, "totalGold": 500 + 400 * m,
+                      "currentGold": 200, "xp": 100 * m, "level": 1,
+                      "minionsKilled": 5 * m, "jungleMinionsKilled": 0},
+                "2": {"participantId": 2, "totalGold": 500 + 300 * m,
+                      "currentGold": 200, "xp": 90 * m, "level": 1,
+                      "minionsKilled": 4 * m, "jungleMinionsKilled": 0},
+            },
+        })
+    return {
+        "metadata": {"matchId": mid, "participants": ["p1", "opp"]},
+        "info": {
+            "frameInterval": 60000,
+            "participants": [
+                {"participantId": 1, "puuid": "p1"},
+                {"participantId": 2, "puuid": "opp"},
+            ],
+            "frames": frames,
+        },
+    }
+
+
+def _timeline_match(mid="m1", position="MIDDLE"):
+    return {
+        "metadata": {"matchId": mid},
+        "info": {"participants": [
+            {"participantId": 1, "puuid": "p1", "teamId": 100,
+             "teamPosition": position, "championName": "Ahri"},
+            {"participantId": 2, "puuid": "opp", "teamId": 200,
+             "teamPosition": "MIDDLE", "championName": "Zed"},
+        ]},
+    }
+
+
+def _store_timeline(override_db, mid="m1"):
+    from modules.data.timeline import compact_timeline
+
+    override_db._cols["timelines"] = FakeCol([compact_timeline(_raw_timeline(mid))])
+
+
+def test_match_timeline_returns_series(client, override_db):
+    override_db._cols["player_matches"] = FakeCol([
+        {"player_puuid": "p1", "matchId": "m1"},
+    ])
+    _set_raw_match(override_db, _timeline_match())
+    _store_timeline(override_db)
+    r = client.get("/players/p1/matches/m1/timeline")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matchId"] == "m1"
+    assert body["puuid"] == "p1"
+    assert body["frameIntervalMs"] == 60000
+    assert len(body["series"]) == 23
+    assert body["series"][10] == {"minute": 10, "gold": 4500, "cs": 50, "xp": 1000, "level": 1}
+    assert body["opponent"] == {"puuid": "opp", "championName": "Zed"}
+    assert body["opponentSeries"][10]["cs"] == 40
+    assert body["diff"][10] == {"minute": 10, "goldDiff": 1000, "csDiff": 10}
+    assert body["milestones"]["goldAt10"] == 4500
+    assert body["milestones"]["csAt10"] == 50
+    assert body["milestones"]["goldDiffAt10"] == 1000
+
+
+def test_match_timeline_player_match_not_found(client, override_db):
+    _store_timeline(override_db)
+    r = client.get("/players/nobody/matches/m1/timeline")
+    assert r.status_code == 404
+    assert r.json()["detail"] == "player_match not found"
+
+
+def test_match_timeline_not_stored_404(client, override_db):
+    override_db._cols["player_matches"] = FakeCol([
+        {"player_puuid": "p1", "matchId": "m1"},
+    ])
+    r = client.get("/players/p1/matches/m1/timeline")
+    assert r.status_code == 404
+    assert "no timeline stored" in r.json()["detail"]
+
+
+def test_match_timeline_without_opponent(client, override_db):
+    override_db._cols["player_matches"] = FakeCol([
+        {"player_puuid": "p1", "matchId": "m1"},
+    ])
+    _set_raw_match(override_db, _timeline_match(position=""))
+    _store_timeline(override_db)
+    r = client.get("/players/p1/matches/m1/timeline")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["series"][10]["cs"] == 50
+    assert body["opponent"] is None
+    assert body["opponentSeries"] == []
+    assert body["diff"] == []
 
 
 def test_match_composition_not_found(client):
