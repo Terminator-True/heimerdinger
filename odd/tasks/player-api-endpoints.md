@@ -68,4 +68,24 @@ PEP 668 y no tiene pip/ensurepip. Se instalaron solo deps core (sin `sentence-tr
 - Branch: `feat/focus-support` (ya pusheada al remoto).
 
 ## Progreso
-- Plan creado. Pendiente E-a.
+- **E-a COMMITEADO** (`7e6b102`): enriquecimiento numérico de `parsed_metrics` en la ingesta
+  (claves del parser ganan, fallo no fatal) + `scripts/reparse_matches.py` (offline, aditivo,
+  `--player/--all/--limit/--dry-run`). Tests: 213 → **219 passed**.
+- **E-b COMMITEADO** (`9db3696`): `load_baseline()`; fix de `/players/{puuid}/report` (ahora pasa
+  `pro_reference`); `GET /players/{puuid}/comparison` (filas con p25/median/p75/n, override de rol,
+  `baseline:null, rows:[]` cuando no hay baseline, 404 si no hay partidas);
+  `GET /pro/baseline/{role}`. Tests: 219 → **231 passed**.
+- **F COMMITEADO** (`cc173b7`): `playerData.ts` contra la API real (mock sigue con `VITE_MOCK`),
+  schemas zod de comparison/baseline, normalización de filas de `/matches` (`ch_*`/`total*` →
+  claves canónicas), overview compuesto de `/report` + `/comparison`. Fix propio: la fase
+  Objetivos en modo real leía solo `objectives` anidado → ahora levanta `team_dragonKills`/
+  `team_baronKills`/`team_towerKills`. Tests: 162 → **173 passed**; build y lint en 0.
+
+## Pendiente / follow-up
+- `app/main.py` importa `_means_from_doc` (privada) desde `pro_baseline`: exponer un alias público
+  (`baseline_means`) cuando se toque ese módulo.
+- `getProBaseline` existe en el cliente pero ninguna vista lo usa todavía (el payload de
+  `/comparison` ya trae los percentiles).
+- `--all` del reparseo cubre jugadores con `player_matches` existente, no todo puuid presente en
+  `matches`.
+- Timeline (`match/timeline`) y rango/LP siguen fuera: sin eso no hay curvas minuto a minuto.
