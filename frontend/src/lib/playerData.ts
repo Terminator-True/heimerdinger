@@ -3,10 +3,12 @@
 //
 // MOCK_ENABLED=true  -> synthetic success states from src/mocks/player.ts
 // MOCK_ENABLED=false -> /report + /comparison + /matches, normalized below
-import { getPlayerComparison, getPlayerMatches, getPlayerReport } from './api'
+import { getMatchTimeline, getPlayerComparison, getPlayerMatches, getPlayerReport } from './api'
 import { useApiQuery, type QueryState } from '../hooks/useApiQuery'
+import type { MatchTimeline } from './timeline'
 import {
   MOCK_ENABLED,
+  buildMockTimeline,
   mockComparisonRows,
   mockMatches,
   mockPlayer,
@@ -317,6 +319,22 @@ export function useComparison(puuid: string): PlayerQuery<ComparisonPayload> {
     }
   }
   return { state: mapComparison(state), retry }
+}
+
+// Per-minute curves for one match. Gated on a non-empty matchId so the panel
+// stays inert until a row is selected; a 404 (timeline not captured) maps to
+// `empty` through useApiQuery, never an error.
+export function useMatchTimeline(puuid: string, matchId: string): PlayerQuery<MatchTimeline> {
+  const enabled = puuid !== '' && matchId !== '' && !MOCK_ENABLED
+  const { state, retry } = useApiQuery(
+    () => getMatchTimeline(puuid, matchId),
+    [puuid, matchId],
+    { enabled },
+  )
+  if (MOCK_ENABLED && puuid !== '' && matchId !== '') {
+    return { state: { phase: 'success', data: buildMockTimeline(matchId) }, retry }
+  }
+  return { state, retry }
 }
 
 // --- Score helpers (0-100 position of the player vs the pro distribution) ---

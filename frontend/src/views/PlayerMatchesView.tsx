@@ -1,13 +1,21 @@
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { Line, LineChart, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   metricPositionPct,
   useComparison,
   useMatchList,
+  useMatchTimeline,
   type MatchRow,
   type ProBaseline,
   type ProMetricStats,
 } from '../lib/playerData'
+import {
+  MILESTONE_MINUTES,
+  TIMELINE_METRIC_LABELS,
+  valueAtMinute,
+  type TimelineMetric,
+} from '../lib/timeline'
 import {
   METRICS_BY_PHASE,
   METRIC_LABELS,
@@ -16,6 +24,7 @@ import {
   formatMetric,
   type MetricPhase,
 } from '../lib/metrics'
+import { errorCopy } from '../lib/errorCopy'
 import { PanelSkeleton } from '../components/PanelSkeleton'
 import { ErrorState } from '../components/ErrorState'
 import { EmptyState } from '../components/EmptyState'
@@ -26,6 +35,10 @@ const HISTORY_ERROR_COPY = 'No se pudieron cargar las partidas.'
 const NO_MATCHES_COPY = 'Sin partidas todavía.'
 const NO_FILTER_MATCHES_COPY = 'No hay partidas que coincidan con los filtros.'
 const EMPTY_BREAKDOWN_COPY = 'Seleccioná una partida para ver el desglose.'
+const TIMELINE_EMPTY_COPY =
+  'Las curvas de esta partida todavía no fueron capturadas. Ejecutá scripts/backfill_timelines.py para generarlas.'
+
+const TIMELINE_METRICS: readonly TimelineMetric[] = ['gold', 'cs', 'xp', 'level']
 
 type ResultFilter = 'all' | 'win' | 'loss'
 
@@ -169,6 +182,141 @@ function PhaseBreakdown({ match, baseline }: { match: MatchRow; baseline: ProBas
   )
 }
 
+// --- Curvas: per-minute player vs lane-opponent curves ---------------------
+
+function milestoneCell(value: number | null): string {
+  return value === null ? '—' : String(value)
+}
+
+function diffCell(value: number | null): string {
+  if (value === null) return '—'
+  return `${value >= 0 ? '+' : ''}${value}`
+}
+
+function diffTone(value: number | null): string {
+  if (value === null || value === 0) return 'text-slate-400'
+  return value > 0 ? 'text-blue-400' : 'text-red-400'
+}
+
+function TimelinePanel({ puuid, matchId }: { puuid: string; matchId: string }) {
+  const { state, retry } = useMatchTimeline(puuid, matchId)
+  const [metric, setMetric] = useState<TimelineMetric>('gold')
+
+  if (state.phase === 'loading') return <PanelSkeleton />
+  if (state.phase === 'error') {
+    return <ErrorState message={errorCopy(state.error)} onRetry={retry} />
+  }
+  if (state.phase === 'empty' || state.data.series.length === 0) {
+    return (
+      <section
+        aria-label="Curvas"
+        className="rounded border border-slate-800 bg-slate-900 p-4"
+      >
+        <h3 className="text-sm font-semibold text-slate-100">Curvas</h3>
+        <p className="mt-3 text-sm text-slate-400">{TIMELINE_EMPTY_COPY}</p>
+      </section>
+    )
+  }
+
+  const data = state.data
+  const label = TIMELINE_METRIC_LABELS[metric]
+  const opponentByMinute = new Map(data.opponentSeries.map((p) => [p.minute, p]))
+  const chartData = data.series.map((p) => ({
+    minute: p.minute,
+    player: p[metric],
+    opponent: opponentByMinute.get(p.minute)?.[metric] ?? null,
+  }))
+
+  return (
+    <section
+      aria-label="Curvas"
+      className="rounded border border-slate-800 bg-slate-900 p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-100">Curvas</h3>
+        <div role="group" aria-label="Métrica" className="flex gap-1">
+          {TIMELINE_METRICS.map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={metric === m}
+              onClick={() => setMetric(m)}
+              className={`rounded border px-2 py-1 text-xs ${
+                metric === m
+                  ? 'border-amber-500 text-amber-500'
+                  : 'border-slate-800 text-slate-400 hover:text-slate-100'
+              }`}
+            >
+              {TIMELINE_METRIC_LABELS[m]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ponytail: fixed chart size, no ResponsiveContainer — it needs
+          ResizeObserver, which jsdom lacks (chart never renders in tests). */}
+      <div
+        role="img"
+        aria-label={`Curva de ${label} por minuto`}
+        className="mt-4 overflow-x-auto"
+      >
+        <LineChart width={800} height={256} data={chartData}>
+          <XAxis dataKey="minute" stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+          <YAxis stroke="#64748b" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+          <Tooltip />
+          <Line
+            type="monotone"
+            dataKey="player"
+            name="Vos"
+            stroke="#f59e0b"
+            strokeWidth={2}
+            dot={false}
+          />
+          {data.opponent && (
+            <Line
+              type="monotone"
+              dataKey="opponent"
+              name={data.opponent.championName ?? 'Rival'}
+              stroke="#60a5fa"
+              strokeWidth={2}
+              dot={false}
+            />
+          )}
+        </LineChart>
+      </div>
+
+      <table className="mt-4 w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-slate-800 text-slate-400">
+            <th className="py-2 pr-2 font-medium">Min</th>
+            <th className="py-2 pr-2 text-right font-medium">{label}</th>
+            <th className="py-2 text-right font-medium">Dif. oro</th>
+          </tr>
+        </thead>
+        <tbody>
+          {MILESTONE_MINUTES.map((minute) => {
+            const value = valueAtMinute(data.series, minute, metric)
+            const goldDiff = valueAtMinute(data.diff, minute, 'goldDiff')
+            return (
+              <tr key={minute} className="border-b border-slate-800/60">
+                <th scope="row" className="py-2 pr-2 font-medium text-slate-400">
+                  @{minute}
+                </th>
+                <td className="py-2 pr-2 text-right text-slate-100">
+                  {milestoneCell(value)}
+                </td>
+                <td className={`py-2 text-right font-medium ${diffTone(goldDiff)}`}>
+                  {diffCell(goldDiff)}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
 export function PlayerMatchesView() {
   const { puuid = '' } = useParams()
   const matches = useMatchList(puuid)
@@ -260,7 +408,10 @@ export function PlayerMatchesView() {
 
         <div className="min-w-0">
           {selected ? (
-            <PhaseBreakdown match={selected} baseline={baseline} />
+            <div className="flex flex-col gap-4">
+              <PhaseBreakdown match={selected} baseline={baseline} />
+              <TimelinePanel puuid={puuid} matchId={selected.matchId} />
+            </div>
           ) : (
             <EmptyState message={EMPTY_BREAKDOWN_COPY} />
           )}

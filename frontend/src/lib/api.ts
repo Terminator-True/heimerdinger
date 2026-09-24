@@ -13,6 +13,7 @@ import {
   matchReportSchema,
   compositionSchema,
   snapshotSchema,
+  matchTimelineSchema,
   matchGoldSchema,
   goldMatchesSchema,
   aggregateGoldSchema,
@@ -279,6 +280,16 @@ export function getMatchComposition(
 
 export function getMatchSnapshot(matchId: string): Promise<z.output<typeof snapshotSchema>> {
   return get(`/matches/${encodeURIComponent(matchId)}/snapshot`, snapshotSchema)
+}
+
+export function getMatchTimeline(
+  puuid: string,
+  matchId: string,
+): Promise<z.output<typeof matchTimelineSchema>> {
+  return get(
+    `/players/${encodeURIComponent(puuid)}/matches/${encodeURIComponent(matchId)}/timeline`,
+    matchTimelineSchema,
+  )
 }
 
 export function getMatchGold(matchId: string): Promise<z.output<typeof matchGoldSchema>> {

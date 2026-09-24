@@ -28,6 +28,14 @@ Real endpoints consumed by the seam:
   `parsed_metrics` keys (`ch_visionScorePerMinute`, `ch_controlWardsPlaced`,
   `ch_killParticipation`, …) are normalized to canonical names in
   `playerData.ts` so views never see the `ch_` prefix.
+- `GET /players/{puuid}/matches/{match_id}/timeline` — per-minute curves for
+  one match: the player's `series` (gold/CS/XP/level), the lane
+  `opponent`/`opponentSeries`, the `diff` and the `@10`/`@15`/`@20`
+  `milestones` (`null` when the game ended before that minute). Curves require
+  the compacted timeline to have been captured (ingest or
+  `scripts/backfill_timelines.py`); a match ingested without it returns **404**,
+  which the Partidas "Curvas" panel renders as a not-captured message — the
+  app never fabricates a curve.
 - `GET /pro/baseline/{role}` — full stored pro baseline document (404 when
   absent).
 
@@ -35,7 +43,9 @@ Real endpoints consumed by the seam:
 
 - `/player/:puuid` — Resumen (dashboard)
 - `/player/:puuid/matches` — Partidas: champion/result filters plus an inline
-  per-match phase breakdown (Laning, Economía, Visión, Combate, Objetivos)
+  per-match phase breakdown (Laning, Economía, Visión, Combate, Objetivos) and
+  the per-minute "Curvas" panel (Oro/CS/XP/Nivel vs the lane opponent plus the
+  @10/@15/@20 milestones)
 - `/player/:puuid/compare` — Comparativa: metric table vs the pro baseline
 - `/player/:puuid/gold` — Reporte de oro
 

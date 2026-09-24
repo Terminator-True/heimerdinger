@@ -4,6 +4,14 @@
 // The story is deliberate: strong vision / objectives, weak CS/min and damage,
 // so "Fortalezas" and "A mejorar" both say something real.
 
+import {
+  valueAtMinute,
+  type MatchTimeline,
+  type TimelineDiffPoint,
+  type TimelineMilestones,
+  type TimelinePoint,
+} from '../lib/timeline'
+
 export interface PlayerOverview {
   puuid: string
   riotid: string
@@ -242,3 +250,80 @@ export const mockComparisonRows = buildComparisonRows(
   mockPlayerMetrics,
   mockProBaseline.metrics,
 )
+
+// Lane opponent champions for the demo Support (counterpart support).
+const OPPONENT_CHAMPIONS = ['Lulu', 'Nami', 'Karma', 'Morgana']
+
+// Deterministic id → stable index (no randomness, so mock mode and tests agree).
+function hashId(id: string): number {
+  let h = 0
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  return h
+}
+
+// Synthetic per-minute curve derived from a mock match's totals. Gold/CS/XP
+// grow monotonically toward the match totals and the milestones come from the
+// same valueAtMinute rule the backend uses, so mock and real timelines agree.
+export function buildMockTimeline(matchId: string): MatchTimeline {
+  const match = mockMatches.find((m) => m.matchId === matchId)
+  const endMinute = Math.max(1, Math.floor((match?.durationSeconds ?? 1800) / 60))
+  const totalGold = match?.goldEarned ?? 9000
+  const csPerMin = match?.cs_per_min ?? 1.0
+  const hash = hashId(matchId)
+
+  const series: TimelinePoint[] = []
+  const opponentSeries: TimelinePoint[] = []
+  for (let minute = 0; minute <= endMinute; minute++) {
+    const progress = minute / endMinute
+    series.push({
+      minute,
+      gold: Math.round(totalGold * progress),
+      cs: Math.round(csPerMin * 60 * progress),
+      xp: Math.round(700 * minute + 25 * minute * minute),
+      level: Math.min(18, 1 + Math.floor(minute / 3)),
+    })
+    opponentSeries.push({
+      minute,
+      gold: Math.round(totalGold * progress * 0.9),
+      cs: Math.round(csPerMin * 60 * progress * 0.8),
+      xp: Math.round(640 * minute + 22 * minute * minute),
+      level: Math.min(18, 1 + Math.floor(minute / 3.2)),
+    })
+  }
+
+  const diff: TimelineDiffPoint[] = series.map((point, i) => {
+    const opponent = opponentSeries[i]!
+    return {
+      minute: point.minute,
+      goldDiff: point.gold - opponent.gold,
+      csDiff: point.cs - opponent.cs,
+    }
+  })
+
+  const milestones: TimelineMilestones = {
+    goldAt10: valueAtMinute(series, 10, 'gold'),
+    csAt10: valueAtMinute(series, 10, 'cs'),
+    goldDiffAt10: valueAtMinute(diff, 10, 'goldDiff'),
+    goldAt15: valueAtMinute(series, 15, 'gold'),
+    csAt15: valueAtMinute(series, 15, 'cs'),
+    goldDiffAt15: valueAtMinute(diff, 15, 'goldDiff'),
+    goldAt20: valueAtMinute(series, 20, 'gold'),
+    csAt20: valueAtMinute(series, 20, 'cs'),
+    goldDiffAt20: valueAtMinute(diff, 20, 'goldDiff'),
+  }
+
+  return {
+    matchId,
+    puuid: mockPlayer.puuid,
+    frameIntervalMs: 60_000,
+    series,
+    opponent: {
+      puuid: `opp-${hash % 1000}`,
+      championName: OPPONENT_CHAMPIONS[hash % OPPONENT_CHAMPIONS.length] ?? 'Lulu',
+    },
+    opponentSeries,
+    diff,
+    milestones,
+  }
+}
+

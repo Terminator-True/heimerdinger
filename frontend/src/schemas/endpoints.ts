@@ -176,6 +176,61 @@ export const snapshotSchema = z
   .object({ snapshot: z.string() })
   .passthrough()
 
+// GET /players/{puuid}/matches/{match_id}/timeline — per-minute curves.
+// opponent/opponentSeries/diff are empty/None when no lane opponent could be
+// identified; milestone values are null when the game ended before that minute.
+export const timelinePointSchema = z
+  .object({
+    minute: z.number(),
+    gold: z.number(),
+    cs: z.number(),
+    xp: z.number(),
+    level: z.number(),
+  })
+  .passthrough()
+
+export const timelineOpponentSchema = z
+  .object({
+    puuid: z.string().nullable(),
+    championName: z.string().nullable(),
+  })
+  .passthrough()
+
+export const timelineDiffPointSchema = z
+  .object({
+    minute: z.number(),
+    goldDiff: z.number(),
+    csDiff: z.number(),
+  })
+  .passthrough()
+
+export const timelineMilestonesSchema = z
+  .object({
+    goldAt10: z.number().nullable(),
+    csAt10: z.number().nullable(),
+    goldDiffAt10: z.number().nullable(),
+    goldAt15: z.number().nullable(),
+    csAt15: z.number().nullable(),
+    goldDiffAt15: z.number().nullable(),
+    goldAt20: z.number().nullable(),
+    csAt20: z.number().nullable(),
+    goldDiffAt20: z.number().nullable(),
+  })
+  .passthrough()
+
+export const matchTimelineSchema = z
+  .object({
+    matchId: z.string(),
+    puuid: z.string(),
+    frameIntervalMs: z.number(),
+    series: z.array(timelinePointSchema),
+    opponent: timelineOpponentSchema.nullable(),
+    opponentSeries: z.array(timelinePointSchema),
+    diff: z.array(timelineDiffPointSchema),
+    milestones: timelineMilestonesSchema,
+  })
+  .passthrough()
+
 // Gold row shared by /gold endpoints.
 // items.gold_value is NON-null number but CAN BE 0 (= unknown via
 // _resolve_items failure paths); consumers must never divide by 0.
