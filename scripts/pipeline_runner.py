@@ -44,6 +44,8 @@ def main():
     parser.add_argument("--skip-fetch", action="store_true")
     parser.add_argument("--focus", action="store_true",
                         help="Ingest and report only the env-configured focus player (FOCUS_RIOTID/FOCUS_ROLE), with no team-presence gate.")
+    parser.add_argument("--no-timeline", action="store_true",
+                        help="In --focus mode, skip fetching match timelines (default: timelines are fetched).")
     args = parser.parse_args()
 
     console = Console()
@@ -67,12 +69,16 @@ def main():
         team = get_team(args.team)
         team_puuids = resolve_team_puuids(team, RiotClient(region=args.region))
 
+    # Timelines are only fetched on the coaching path (--focus), and can be
+    # turned off explicitly to keep the Riot call count down.
+    with_timeline = args.focus and not args.no_timeline
+
     for p in team:
         riotid = p.get("riotid")
         role = p.get("role")
         console.print(f"\n--- Processing {riotid} ({role}) ---")
         logger.info("Starting ingest for %s (%s)", riotid, role)
-        res = ingest_player(riotid, count=args.games, region=args.region, skip_fetch=args.skip_fetch, team_puuids=team_puuids)
+        res = ingest_player(riotid, count=args.games, region=args.region, skip_fetch=args.skip_fetch, team_puuids=team_puuids, with_timeline=with_timeline)
         puuid = res.get("puuid")
         if not puuid:
             console.print(f"[yellow]Could not resolve puuid for {riotid}; skipping report[/yellow]")

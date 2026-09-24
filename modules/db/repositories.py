@@ -11,6 +11,7 @@ class MatchesRepository:
     def __init__(self, collection: Collection):
         self.col = collection
         self._player_matches = None
+        self._timelines = None
         # ensure unique index on metadata.matchId if available
         try:
             self.col.create_index([("metadata.matchId", 1)], unique=True)
@@ -32,6 +33,30 @@ class MatchesRepository:
             db = self.col.database
             self._player_matches = db.get_collection("player_matches")
         return self._player_matches
+
+    def _get_timelines_col(self):
+        """Lazy-load and cache the timelines collection reference."""
+        if self._timelines is None:
+            db = self.col.database
+            self._timelines = db.get_collection("timelines")
+        return self._timelines
+
+    def timeline_exists(self, match_id: str) -> bool:
+        """Return True if a compacted timeline is stored for the match."""
+        col = self._get_timelines_col()
+        return col.count_documents({"matchId": match_id}, limit=1) > 0
+
+    def upsert_timeline(self, match_id: str, compact: dict) -> bool:
+        """Insert or update the compacted timeline for a match, keyed by matchId."""
+        col = self._get_timelines_col()
+        try:
+            col.create_index([("matchId", 1)], unique=True)
+        except Exception as exc:
+            logger.warning("Failed to create index on timelines: %s", exc)
+        doc = dict(compact or {})
+        doc.setdefault("matchId", match_id)
+        col.update_one({"matchId": match_id}, {"$set": doc}, upsert=True)
+        return True
 
     def upsert_match(self, match_json: dict, skip_if_exists: bool = False) -> bool:
         """Insert or update a match document.

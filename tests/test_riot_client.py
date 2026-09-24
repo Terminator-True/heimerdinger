@@ -25,6 +25,17 @@ def test_get_match_by_id():
         assert m["metadata"]["matchId"] == match_id
 
 
+def test_get_match_timeline():
+    client = RiotClient(api_key="fake-key")
+    match_id = "match1"
+    url = f"https://europe.api.riotgames.com/lol/match/v5/matches/{match_id}/timeline"
+
+    with respx.mock as rsps:
+        rsps.get(url).respond(200, json={"metadata": {"matchId": match_id}, "info": {}})
+        t = client.get_match_timeline(match_id)
+        assert t["metadata"]["matchId"] == match_id
+
+
 def test_get_account_by_riot_id():
     client = RiotClient(api_key="fake-key", region="europe")
     name = "TR Terminator"

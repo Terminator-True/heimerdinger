@@ -52,3 +52,10 @@ class RiotClient:
         r = self.client.get(url)
         r.raise_for_status()
         return r.json()
+
+    def get_match_timeline(self, match_id: str, region_rep: str = "europe") -> dict:
+        """Fetch the match-v5 timeline (per-minute frames) for a match."""
+        url = f"https://{region_rep}.api.riotgames.com/lol/match/v5/matches/{match_id}/timeline"
+        r = self.client.get(url)
+        r.raise_for_status()
+        return r.json()

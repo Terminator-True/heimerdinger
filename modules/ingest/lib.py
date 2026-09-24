@@ -11,6 +11,7 @@ from modules.riot_api.client import RiotClient
 from modules.riot_api.rate_limiter import TokenBucketLimiter
 from modules.data.match_parser import MatchParser
 from modules.data.report_builder import extract_rich_participant
+from modules.data.timeline import compact_timeline
 from modules.logger import get_logger
 import os
 
@@ -80,7 +81,7 @@ def resolve_focus_puuid(focus: Dict[str, Any], region: str = "europe") -> Option
         return None
 
 
-def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_rep: str = "europe", skip_fetch: bool = False, team_puuids: Optional[List[str]] = None, min_team_members: int = 5) -> Dict[str, Any]:
+def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_rep: str = "europe", skip_fetch: bool = False, team_puuids: Optional[List[str]] = None, min_team_members: int = 5, with_timeline: bool = False) -> Dict[str, Any]:
     """Ingest matches for a single player.
 
     Args:
@@ -94,11 +95,15 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
             present among its participants; otherwise the match is discarded.
         min_team_members: minimum number of team members that must be present
             for a match to be ingested (default 5 = the whole team).
+        with_timeline: when True, also fetch and store the compacted match
+            timeline for every ingested match. Off by default because it
+            doubles the Riot API calls. Best-effort: a timeline failure is
+            logged and counted, never breaks ingestion.
 
     Returns:
         Summary dict with keys: puuid, matches_fetched, matches_saved,
         matches_skipped, matches_discarded, matches_parse_errors,
-        matches_fetch_errors
+        matches_fetch_errors, timelines_saved, timelines_failed
     """
     if team_puuids is not None and len(team_puuids) < min_team_members:
         # Fail loudly instead of silently discarding every match: a partial
@@ -147,6 +152,8 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
     matches_discarded = 0
     matches_parse_errors = 0
     matches_fetch_errors = 0
+    timelines_saved = 0
+    timelines_failed = 0
 
     if skip_fetch:
         # Count existing parsed player matches for this puuid
@@ -157,7 +164,8 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
             existing = 0
         return {"puuid": puuid, "matches_fetched": 0, "matches_saved": existing,
                 "matches_skipped": 0, "matches_discarded": 0,
-                "matches_parse_errors": 0, "matches_fetch_errors": 0}
+                "matches_parse_errors": 0, "matches_fetch_errors": 0,
+                "timelines_saved": 0, "timelines_failed": 0}
 
     # Fetch match ids
     match_ids = client.get_match_ids_by_puuid(puuid, count=count, region_rep=region_rep)
@@ -198,6 +206,21 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
                     continue
 
             repo.upsert_match(m)
+
+            # Timeline is only fetched for matches that passed the team gate
+            # (this point) and only when explicitly requested, since it doubles
+            # the Riot API calls. Best-effort: a failure is counted, never
+            # breaks the ingest of the match itself.
+            if with_timeline:
+                try:
+                    limiter.acquire()
+                    timeline_doc = client.get_match_timeline(mid, region_rep=region_rep)
+                    repo.upsert_timeline(mid, compact_timeline(timeline_doc))
+                    timelines_saved += 1
+                except Exception as exc:
+                    logger.warning("Failed to ingest timeline for match %s: %s", mid, exc)
+                    timelines_failed += 1
+
             target = next((p for p in participants if p.get("puuid") == puuid), None)
             if target:
                 # The match_parser shape is minimal: it drops vision/min,
@@ -238,4 +261,6 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
         "matches_discarded": matches_discarded,
         "matches_parse_errors": matches_parse_errors,
         "matches_fetch_errors": matches_fetch_errors,
+        "timelines_saved": timelines_saved,
+        "timelines_failed": timelines_failed,
     }

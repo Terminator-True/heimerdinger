@@ -9,6 +9,7 @@ class FakeMatchesRepo:
         self.matches = set()
         self.player_matches = set()
         self.parsed_docs = {}
+        self.timelines = {}
 
     def match_exists(self, mid):
         return mid in self.matches
@@ -23,6 +24,40 @@ class FakeMatchesRepo:
     def upsert_parsed_player_match(self, pp):
         self.player_matches.add((pp["matchId"], pp["player_puuid"]))
         self.parsed_docs[(pp["matchId"], pp["player_puuid"])] = pp
+
+    def upsert_timeline(self, match_id, compact):
+        self.timelines[match_id] = compact
+        return True
+
+
+def _make_timeline_json(mid, puuid="test-puuid"):
+    """Minimal raw timeline with the bulky fields that compaction drops."""
+    return {
+        "metadata": {"matchId": mid, "participants": [puuid]},
+        "info": {
+            "frameInterval": 60000,
+            "participants": [{"participantId": 1, "puuid": puuid}],
+            "frames": [
+                {
+                    "timestamp": 0,
+                    "participantFrames": {
+                        "1": {
+                            "participantId": 1,
+                            "totalGold": 500,
+                            "currentGold": 500,
+                            "xp": 0,
+                            "level": 1,
+                            "minionsKilled": 0,
+                            "jungleMinionsKilled": 0,
+                            "championStats": {"abilityHaste": 0},
+                            "damageStats": {"totalDamageDoneToChampions": 0},
+                        },
+                    },
+                    "events": [{"type": "GAME_START"}],
+                },
+            ],
+        },
+    }
 
 
 def _make_client_and_match_ids(match_ids):
@@ -421,3 +456,75 @@ def test_ingest_player_extended_return_keys(mock_parser, mock_limiter, mock_clie
     assert "matches_fetch_errors" in result
     assert "matches_fetched" in result
     assert "matches_saved" in result
+
+
+@patch("modules.ingest.lib.get_db")
+@patch("modules.ingest.lib.MatchesRepository")
+@patch("modules.ingest.lib.RiotClient")
+@patch("modules.ingest.lib.TokenBucketLimiter")
+@patch("modules.ingest.lib.MatchParser")
+def test_ingest_player_with_timeline_stores_compacted(mock_parser, mock_limiter,
+                                                      mock_client_cls, mock_repo_cls,
+                                                      mock_get_db):
+    """with_timeline=True fetches and stores the compacted timeline."""
+    mock_db = MagicMock()
+    mock_db.get_collection.return_value = MagicMock()
+    mock_get_db.return_value = mock_db
+
+    repo = FakeMatchesRepo()
+    mock_repo_cls.return_value = repo
+
+    client = _make_client_and_match_ids(["mid-tl"])
+    client.get_match_by_id.side_effect = lambda mid, region_rep=None: _make_match_json(mid)
+    client.get_match_timeline.return_value = _make_timeline_json("mid-tl")
+    mock_client_cls.return_value = client
+
+    _wire_parser(mock_parser, [_make_participant("test-puuid")])
+
+    result = ingest_player("Player#Tag1", count=5, region="europe", with_timeline=True)
+
+    assert result["matches_saved"] == 1
+    assert result["timelines_saved"] == 1
+    assert result["timelines_failed"] == 0
+    stored = repo.timelines["mid-tl"]
+    assert stored["matchId"] == "mid-tl"
+    # Bulky frame fields are gone; numeric counters survive.
+    assert "events" not in stored
+    assert "events" not in stored["frames"][0]
+    pf = stored["frames"][0]["participantFrames"]["1"]
+    assert pf["totalGold"] == 500
+    assert "championStats" not in pf and "damageStats" not in pf
+
+
+@patch("modules.ingest.lib.get_db")
+@patch("modules.ingest.lib.MatchesRepository")
+@patch("modules.ingest.lib.RiotClient")
+@patch("modules.ingest.lib.TokenBucketLimiter")
+@patch("modules.ingest.lib.MatchParser")
+def test_ingest_player_timeline_failure_does_not_break_ingest(mock_parser, mock_limiter,
+                                                              mock_client_cls, mock_repo_cls,
+                                                              mock_get_db):
+    """A timeline fetch failure is counted but never loses the match."""
+    mock_db = MagicMock()
+    mock_db.get_collection.return_value = MagicMock()
+    mock_get_db.return_value = mock_db
+
+    repo = FakeMatchesRepo()
+    mock_repo_cls.return_value = repo
+
+    client = _make_client_and_match_ids(["mid-tlfail"])
+    client.get_match_by_id.side_effect = lambda mid, region_rep=None: _make_match_json(mid)
+    client.get_match_timeline.side_effect = RuntimeError("timeline boom")
+    mock_client_cls.return_value = client
+
+    _wire_parser(mock_parser, [_make_participant("test-puuid")])
+
+    result = ingest_player("Player#Tag1", count=5, region="europe", with_timeline=True)
+
+    assert result["matches_saved"] == 1
+    assert result["timelines_saved"] == 0
+    assert result["timelines_failed"] == 1
+    # Match and player metrics are still persisted.
+    assert "mid-tlfail" in repo.matches
+    assert ("mid-tlfail", "test-puuid") in repo.player_matches
+    assert repo.timelines == {}
