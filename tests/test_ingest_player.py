@@ -8,6 +8,7 @@ class FakeMatchesRepo:
     def __init__(self):
         self.matches = set()
         self.player_matches = set()
+        self.parsed_docs = {}
 
     def match_exists(self, mid):
         return mid in self.matches
@@ -21,6 +22,7 @@ class FakeMatchesRepo:
 
     def upsert_parsed_player_match(self, pp):
         self.player_matches.add((pp["matchId"], pp["player_puuid"]))
+        self.parsed_docs[(pp["matchId"], pp["player_puuid"])] = pp
 
 
 def _make_client_and_match_ids(match_ids):
@@ -197,6 +199,113 @@ def test_ingest_player_partial_team_resolution_raises(mock_parser, mock_limiter,
             team_puuids=["t1", "t2", "t3"],
             min_team_members=5,
         )
+
+
+def _make_rich_match_json(mid, puuid="test-puuid"):
+    """Match JSON carrying challenges so extract_rich_participant yields ch_* keys."""
+    return {
+        "metadata": {"matchId": mid},
+        "info": {
+            "gameDuration": 1800,
+            "participants": [
+                {
+                    "puuid": puuid,
+                    "championName": "Thresh",
+                    "kills": 2, "deaths": 4, "assists": 18,
+                    "totalMinionsKilled": 30,
+                    "goldEarned": 9000,
+                    "visionScore": 55,
+                    "totalDamageDealtToChampions": 8000,
+                    "teamId": 100,
+                    "win": True,
+                    "challenges": {
+                        "killParticipation": 0.72,
+                        "visionScorePerMinute": 1.83,
+                        "controlWardsPlaced": 4,
+                    },
+                }
+            ],
+        },
+    }
+
+
+def _rich_parser_participant(puuid):
+    """match_parser-shaped participant: the normalized fields must survive."""
+    return {
+        "puuid": puuid,
+        "championName": "Thresh",
+        "role": "UTILITY",
+        "cs": 30,
+        "cs_per_min": 1.0,
+        "kda": 5.0,
+    }
+
+
+@patch("modules.ingest.lib.get_db")
+@patch("modules.ingest.lib.MatchesRepository")
+@patch("modules.ingest.lib.RiotClient")
+@patch("modules.ingest.lib.TokenBucketLimiter")
+@patch("modules.ingest.lib.MatchParser")
+def test_ingest_player_persists_rich_metrics(mock_parser, mock_limiter, mock_client_cls,
+                                             mock_repo_cls, mock_get_db):
+    """Rich numeric metrics are merged into parsed_metrics; parser keys survive."""
+    mock_db = MagicMock()
+    mock_db.get_collection.return_value = MagicMock()
+    mock_get_db.return_value = mock_db
+
+    repo = FakeMatchesRepo()
+    mock_repo_cls.return_value = repo
+
+    client = _make_client_and_match_ids(["mid-rich"])
+    client.get_match_by_id.side_effect = lambda mid, region_rep=None: _make_rich_match_json(mid)
+    mock_client_cls.return_value = client
+
+    _wire_parser(mock_parser, [_rich_parser_participant("test-puuid")])
+
+    result = ingest_player("Player#Tag1", count=5, region="europe")
+
+    assert result["matches_saved"] == 1
+    stored = repo.parsed_docs[("mid-rich", "test-puuid")]["parsed_metrics"]
+    # At least one rich ch_* metric reached storage...
+    assert any(k.startswith("ch_") for k in stored)
+    assert stored["ch_killParticipation"] == 0.72
+    # ...and the parser's normalized fields are intact.
+    assert stored["cs_per_min"] == 1.0
+    assert stored["kda"] == 5.0
+    assert stored["cs"] == 30
+
+
+@patch("modules.ingest.lib.extract_rich_participant")
+@patch("modules.ingest.lib.get_db")
+@patch("modules.ingest.lib.MatchesRepository")
+@patch("modules.ingest.lib.RiotClient")
+@patch("modules.ingest.lib.TokenBucketLimiter")
+@patch("modules.ingest.lib.MatchParser")
+def test_ingest_player_survives_rich_extraction_failure(mock_parser, mock_limiter,
+                                                        mock_client_cls, mock_repo_cls,
+                                                        mock_get_db, mock_extract):
+    """A rich-extraction failure must never break ingestion."""
+    mock_db = MagicMock()
+    mock_db.get_collection.return_value = MagicMock()
+    mock_get_db.return_value = mock_db
+
+    repo = FakeMatchesRepo()
+    mock_repo_cls.return_value = repo
+
+    client = _make_client_and_match_ids(["mid-fail"])
+    client.get_match_by_id.side_effect = lambda mid, region_rep=None: _make_rich_match_json(mid)
+    mock_client_cls.return_value = client
+
+    mock_extract.side_effect = RuntimeError("rich boom")
+    _wire_parser(mock_parser, [_rich_parser_participant("test-puuid")])
+
+    result = ingest_player("Player#Tag1", count=5, region="europe")
+
+    assert result["matches_saved"] == 1
+    stored = repo.parsed_docs[("mid-fail", "test-puuid")]["parsed_metrics"]
+    assert stored["cs_per_min"] == 1.0
+    assert stored["kda"] == 5.0
+    assert not any(k.startswith("ch_") for k in stored)
 
 
 @patch("modules.ingest.lib.get_db")

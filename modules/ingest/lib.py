@@ -10,6 +10,7 @@ from modules.db.repositories import MatchesRepository
 from modules.riot_api.client import RiotClient
 from modules.riot_api.rate_limiter import TokenBucketLimiter
 from modules.data.match_parser import MatchParser
+from modules.data.report_builder import extract_rich_participant
 from modules.logger import get_logger
 import os
 
@@ -199,6 +200,22 @@ def ingest_player(riotid: str, count: int = 5, region: str = "europe", region_re
             repo.upsert_match(m)
             target = next((p for p in participants if p.get("puuid") == puuid), None)
             if target:
+                # The match_parser shape is minimal: it drops vision/min,
+                # control wards, kill participation, damage/min, gold/min and
+                # objectives. Persist the numeric rich fields so reports and the
+                # pro comparison can use them and the phase breakdown can be
+                # computed. Parser keys win (normalized names are authoritative)
+                # and a failure here must never break ingestion.
+                try:
+                    rich = extract_rich_participant(m, puuid)
+                    for key, value in rich.items():
+                        if isinstance(value, (int, float, bool)) and key not in target:
+                            target[key] = value
+                except Exception as exc:
+                    logger.warning(
+                        "Rich metric extraction failed for match %s (puuid %s): %s",
+                        mid, puuid, exc,
+                    )
                 player_parsed = {
                     "player_puuid": target.get("puuid"),
                     "matchId": mid,
