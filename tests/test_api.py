@@ -19,6 +19,9 @@ class FakeCol:
     def find(self, filt):
         return self
 
+    def __iter__(self):
+        return iter(self.docs)
+
     def sort(self, *args, **kwargs):
         return self
 
@@ -29,12 +32,15 @@ class FakeCol:
         puuid = filt.get("player_puuid")
         match_id = filt.get("matchId")
         meta_mid = (filt.get("metadata") or {}).get("matchId")
+        has_role = "role" in filt
         for d in self.docs:
             if puuid and d.get("player_puuid") != puuid:
                 continue
             if match_id and d.get("matchId") != match_id:
                 continue
             if meta_mid and (d.get("metadata") or {}).get("matchId") != meta_mid:
+                continue
+            if has_role and d.get("role") != filt.get("role"):
                 continue
             return d
         return None
@@ -369,3 +375,123 @@ def test_ingest_player_empty_team_puuids_rejected(client):
         "riotid": "TR X#Y", "team_puuids": [],
     })
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+#  pro baseline / comparison
+# ---------------------------------------------------------------------------
+
+def _support_matches():
+    return [
+        {"player_puuid": "p1", "matchId": "m1", "role": "Support",
+         "championName": "Thresh",
+         "parsed_metrics": {"kills": 2.0, "deaths": 3.0, "assists": 12.0,
+                            "kda": 4.667, "visionScorePerMinute": 1.62}},
+    ]
+
+
+def _support_baseline():
+    return {
+        "role": "Support", "source": "oracles_elixir", "games": 4820,
+        "season": 2025,
+        "metrics": {
+            "kda": {"mean": 3.0, "median": 3.1, "p25": 2.4, "p75": 3.8, "n": 4820},
+            "visionScorePerMinute": {"mean": 2.21, "median": 2.14,
+                                     "p25": 1.72, "p75": 2.63, "n": 4820},
+        },
+    }
+
+
+def _mid_baseline():
+    return {
+        "role": "Mid", "source": "oracles_elixir", "games": 100,
+        "metrics": {
+            "kda": {"mean": 3.5, "median": 3.6, "p25": 2.9, "p75": 4.2, "n": 100},
+        },
+    }
+
+
+def test_player_comparison_enriches_rows_with_percentiles(client, override_db):
+    override_db._cols["player_matches"] = FakeCol(_support_matches())
+    override_db._cols["pro_baselines"] = FakeCol([_support_baseline()])
+    with patch("modules.data.report_builder.ReportBuilder.save_report"):
+        r = client.get("/players/p1/comparison")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["player"] == "p1"
+    assert body["role"] == "Support"
+    assert body["games_analyzed"] == 1
+    assert body["baseline"] == {
+        "role": "Support", "source": "oracles_elixir", "games": 4820,
+        "season": 2025,
+    }
+    rows = {row["metric"]: row for row in body["rows"]}
+    vision = rows["visionScorePerMinute"]
+    assert vision["player"] == 1.62
+    assert vision["pro"] == 2.21
+    assert vision["delta"] == -0.59
+    assert vision["pct"] == -26.7
+    assert vision["p25"] == 1.72
+    assert vision["median"] == 2.14
+    assert vision["p75"] == 2.63
+    assert vision["n"] == 4820
+
+
+def test_player_comparison_without_baseline_is_empty_payload(client, override_db):
+    override_db._cols["player_matches"] = FakeCol(_support_matches())
+    with patch("modules.data.report_builder.ReportBuilder.save_report"):
+        r = client.get("/players/p1/comparison")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["baseline"] is None
+    assert body["rows"] == []
+    assert body["role"] == "Support"
+
+
+def test_player_comparison_no_matches_404(client):
+    r = client.get("/players/nobody/comparison")
+    assert r.status_code == 404
+
+
+def test_player_comparison_role_override(client, override_db):
+    override_db._cols["player_matches"] = FakeCol(_support_matches())
+    override_db._cols["pro_baselines"] = FakeCol([
+        _support_baseline(), _mid_baseline(),
+    ])
+    with patch("modules.data.report_builder.ReportBuilder.save_report"):
+        r = client.get("/players/p1/comparison", params={"role": "Mid"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "Mid"
+    assert body["baseline"]["role"] == "Mid"
+    kda = next(row for row in body["rows"] if row["metric"] == "kda")
+    assert kda["pro"] == 3.5
+    assert kda["median"] == 3.6
+
+
+def test_player_report_carries_pro_reference(client, override_db):
+    override_db._cols["player_matches"] = FakeCol(_support_matches())
+    override_db._cols["pro_baselines"] = FakeCol([_support_baseline()])
+    with patch("modules.data.report_builder.ReportBuilder.save_report"):
+        r = client.get("/players/p1/report")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["pro_reference"] == {"kda": 3.0, "visionScorePerMinute": 2.21}
+    assert body["deltas"]["kda"] == 1.667
+
+
+def test_pro_baseline_returns_doc(client, override_db):
+    override_db._cols["pro_baselines"] = FakeCol([_support_baseline()])
+    r = client.get("/pro/baseline/Support")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["role"] == "Support"
+    assert body["source"] == "oracles_elixir"
+    assert body["games"] == 4820
+    assert body["season"] == 2025
+    assert body["metrics"]["kda"]["median"] == 3.1
+
+
+def test_pro_baseline_missing_404(client):
+    r = client.get("/pro/baseline/Top")
+    assert r.status_code == 404

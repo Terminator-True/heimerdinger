@@ -42,6 +42,11 @@ from modules.data.report_builder import (
     extract_team_composition,
     render_match_snapshot,
 )
+from modules.data.pro_baseline import (
+    _means_from_doc,
+    comparison_rows,
+    load_baseline,
+)
 
 from app.schemas import (
     CoachRequest,
@@ -248,7 +253,72 @@ def player_report(puuid: str, db: Any = Depends(get_db_dep)):
     report = ReportBuilder().build_player_report(puuid, db)
     if report.get("status") == "empty":
         raise HTTPException(404, report.get("detail", "no player matches"))
+    # The report rollup carries the player's dominant role; use it to resolve
+    # the matching pro baseline so pro_reference/deltas are real. Rebuild only
+    # when a baseline actually exists.
+    pro_reference = _means_from_doc(load_baseline(db, report.get("role")))
+    if pro_reference:
+        report = ReportBuilder().build_player_report(
+            puuid, db, pro_reference=pro_reference)
     return report
+
+
+@api.get("/players/{puuid}/comparison")
+def player_comparison(
+    puuid: str,
+    role: Optional[str] = Query(None),
+    db: Any = Depends(get_db_dep),
+):
+    """Player metrics vs the pro baseline, enriched with baseline percentiles."""
+    report = ReportBuilder().build_player_report(puuid, db)
+    if report.get("status") == "empty":
+        raise HTTPException(404, report.get("detail", "no player matches"))
+
+    resolved_role = role or report.get("role")
+    baseline = load_baseline(db, resolved_role)
+    pro_reference = _means_from_doc(baseline)
+    rows = comparison_rows(report.get("metrics") or {}, pro_reference)
+
+    payload: Dict[str, Any] = {
+        "player": puuid,
+        "role": resolved_role,
+        "games_analyzed": report.get("games_analyzed"),
+    }
+    if not baseline:
+        # No baseline is not an error: the front-end renders its explicit
+        # "not available" state. Never invent data, never 404.
+        payload["baseline"] = None
+        payload["rows"] = []
+        return payload
+
+    stats = baseline.get("metrics") if isinstance(baseline, dict) else None
+    for row in rows:
+        entry = (stats or {}).get(row["metric"])
+        entry = entry if isinstance(entry, dict) else {}
+        row["p25"] = entry.get("p25")
+        row["median"] = entry.get("median")
+        row["p75"] = entry.get("p75")
+        row["n"] = entry.get("n")
+
+    meta = {
+        "role": baseline.get("role"),
+        "source": baseline.get("source"),
+        "games": baseline.get("games"),
+    }
+    if "season" in baseline:
+        meta["season"] = baseline["season"]
+    payload["baseline"] = meta
+    payload["rows"] = rows
+    return payload
+
+
+@api.get("/pro/baseline/{role}")
+def pro_baseline(role: str, db: Any = Depends(get_db_dep)):
+    """Full stored pro baseline document for *role* (404 when absent)."""
+    baseline = load_baseline(db, role)
+    if not baseline:
+        raise HTTPException(404, f"no baseline for role: {role}")
+    return _clean(baseline)
 
 
 @api.get("/players/{puuid}/matches/{match_id}/report")

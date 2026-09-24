@@ -270,13 +270,13 @@ def _means_from_doc(doc: Any) -> Dict[str, float]:
     return out
 
 
-def load_pro_reference(db, role: str,
-                       json_path=DEFAULT_JSON_PATH) -> Dict[str, float]:
-    """Return ``{metric: mean}`` for *role*, or ``{}`` when absent.
+def load_baseline(db, role: str,
+                  json_path=DEFAULT_JSON_PATH) -> Optional[Dict[str, Any]]:
+    """Return the full stored baseline document for *role*, or None.
 
     Reads the ``pro_baselines`` collection first and falls back to the
-    ``config/pro_baseline.json`` file. The result is ready to pass to
-    ``ReportBuilder.build_player_report(..., pro_reference=...)``.
+    ``config/pro_baseline.json`` file (dict or list of dicts keyed by
+    ``role``).
     """
     doc = None
     try:
@@ -290,7 +290,7 @@ def load_pro_reference(db, role: str,
             doc = None
 
     if doc:
-        return _means_from_doc(doc)
+        return doc
 
     try:
         path = Path(json_path)
@@ -300,12 +300,24 @@ def load_pro_reference(db, role: str,
             if isinstance(data, list):
                 for d in data:
                     if isinstance(d, dict) and d.get("role") == role:
-                        return _means_from_doc(d)
-                return {}
-            return _means_from_doc(data)
+                        return d
+                return None
+            if isinstance(data, dict):
+                return data
     except Exception:
-        return {}
-    return {}
+        return None
+    return None
+
+
+def load_pro_reference(db, role: str,
+                       json_path=DEFAULT_JSON_PATH) -> Dict[str, float]:
+    """Return ``{metric: mean}`` for *role*, or ``{}`` when absent.
+
+    Reads the ``pro_baselines`` collection first and falls back to the
+    ``config/pro_baseline.json`` file. The result is ready to pass to
+    ``ReportBuilder.build_player_report(..., pro_reference=...)``.
+    """
+    return _means_from_doc(load_baseline(db, role, json_path=json_path))
 
 
 # ------------------------------------------------------------------

@@ -18,6 +18,7 @@ from modules.data.pro_baseline import (  # noqa: E402
     compute_baseline,
     format_comparison,
     iter_metric_rows,
+    load_baseline,
     load_pro_reference,
     save_baseline,
 )
@@ -282,3 +283,62 @@ def test_load_pro_reference_json_fallback(tmp_path):
 
 def test_load_pro_reference_missing_returns_empty(tmp_path):
     assert load_pro_reference({}, "Support", json_path=tmp_path / "nope.json") == {}
+
+
+# ------------------------------------------------------------------
+#  load_baseline
+# ------------------------------------------------------------------
+
+class _FakeCol:
+    def __init__(self, doc, default=None):
+        self._doc = doc
+
+    def find_one(self, filt):
+        if self._doc is not None and self._doc.get("role") == filt.get("role"):
+            return self._doc
+        return None
+
+
+class _FakeDB:
+    def __init__(self, doc):
+        self._doc = doc
+
+    def get_collection(self, name):
+        return _FakeCol(self._doc)
+
+
+def test_load_baseline_from_collection():
+    doc = {"role": "Support", "source": DEFAULT_SOURCE, "games": 3,
+           "metrics": {"kills": {"mean": 1.0, "n": 3}}}
+    db = _FakeDB(doc)
+    assert load_baseline(db, "Support") == doc
+    assert load_baseline(db, "Top") is None
+
+
+def test_load_baseline_roundtrip_dict_db():
+    db = {}
+    baseline = {"role": "Support", "source": DEFAULT_SOURCE, "games": 1,
+                "metrics": {"kills": {"mean": 3.0, "n": 1}}}
+    assert save_baseline(db, baseline) is True
+    # load_baseline returns the FULL doc, not just the {metric: mean} view
+    assert load_baseline(db, "Support") == baseline
+
+
+def test_load_baseline_json_dict(tmp_path):
+    path = tmp_path / "pro_baseline.json"
+    doc = {"role": "Support", "metrics": {"kills": {"mean": 2.5, "n": 1}}}
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    assert load_baseline({}, "Support", json_path=path) == doc
+
+
+def test_load_baseline_json_list_keyed_by_role(tmp_path):
+    path = tmp_path / "pro_baseline.json"
+    support = {"role": "Support", "metrics": {"kills": {"mean": 2.5, "n": 1}}}
+    mid = {"role": "Mid", "metrics": {"kills": {"mean": 5.0, "n": 2}}}
+    path.write_text(json.dumps([support, mid]), encoding="utf-8")
+    assert load_baseline({}, "Mid", json_path=path) == mid
+    assert load_baseline({}, "Top", json_path=path) is None
+
+
+def test_load_baseline_missing_returns_none(tmp_path):
+    assert load_baseline({}, "Support", json_path=tmp_path / "nope.json") is None
